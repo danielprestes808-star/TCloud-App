@@ -167,7 +167,7 @@ try {
     if($updaterArtifactUrl -notmatch '^https://'){throw 'URL final do artefato do updater deve usar HTTPS.'}
     $latest=[ordered]@{
       version=$version
-      notes=('TCloud '+$version+' â€” atualizacao automatica assinada.')
+      notes=('TCloud '+$version+' — atualizacao automatica assinada.')
       pub_date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
       platforms=[ordered]@{
         'windows-x86_64'=[ordered]@{signature=$signatureText;url=$updaterArtifactUrl}
