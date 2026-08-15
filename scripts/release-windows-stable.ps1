@@ -82,7 +82,7 @@ try {
     $config.bundle.windows | Add-Member -NotePropertyName digestAlgorithm -NotePropertyValue $digest -Force
     $config.bundle.windows | Add-Member -NotePropertyName timestampUrl -NotePropertyValue $timestampUrl -Force
     $generatedSigningConfig=Join-Path $ProjectRoot 'src-tauri\.tauri.windows.release.generated.conf.json'
-    $config|ConvertTo-Json -Depth 30|Set-Content $generatedSigningConfig -Encoding UTF8
+    $configJson=$config|ConvertTo-Json -Depth 30; [IO.File]::WriteAllText($generatedSigningConfig,$configJson,(New-Object Text.UTF8Encoding($false)))
     $releaseConfig=$generatedSigningConfig
     Write-Host '[OK] Configuracao temporaria de Authenticode pronta.' -ForegroundColor Green
   }else{
@@ -167,13 +167,13 @@ try {
     if($updaterArtifactUrl -notmatch '^https://'){throw 'URL final do artefato do updater deve usar HTTPS.'}
     $latest=[ordered]@{
       version=$version
-      notes=('TCloud '+$version+' — atualizacao automatica assinada.')
+      notes=('TCloud '+$version+' â€” atualizacao automatica assinada.')
       pub_date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
       platforms=[ordered]@{
         'windows-x86_64'=[ordered]@{signature=$signatureText;url=$updaterArtifactUrl}
       }
     }
-    $latest|ConvertTo-Json -Depth 10|Set-Content (Join-Path $release 'latest.json') -Encoding UTF8
+    $latestJson=$latest|ConvertTo-Json -Depth 10; [IO.File]::WriteAllText((Join-Path $release 'latest.json'),$latestJson,(New-Object Text.UTF8Encoding($false)))
     $pubkey=[string]$cfg.plugins.updater.pubkey
     Set-Content (Join-Path $release 'TCloud-Updater-Public-Key.txt') $pubkey -Encoding UTF8
     Write-Host '[OK] latest.json e assinatura do updater gerados.' -ForegroundColor Green
@@ -198,7 +198,7 @@ try {
     updater_artifact_url=$updaterArtifactUrl
     created_at=(Get-Date).ToString('o')
   }
-  $metadata|ConvertTo-Json -Depth 8|Set-Content (Join-Path $release ('TCloud-'+$version+'-Windows-x64.json')) -Encoding UTF8
+  $metadataJson=$metadata|ConvertTo-Json -Depth 8; [IO.File]::WriteAllText((Join-Path $release ('TCloud-'+$version+'-Windows-x64.json')),$metadataJson,(New-Object Text.UTF8Encoding($false)))
   Set-Content ($out+'.sha256.txt') ($hash.Hash+'  '+[IO.Path]::GetFileName($out)) -Encoding ASCII
   Copy-Item (Join-Path $ProjectRoot 'scripts\verify-installed-windows.ps1') (Join-Path $release 'Verificar-TCloud-Instalado.ps1') -Force
 

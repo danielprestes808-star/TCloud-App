@@ -1,7 +1,7 @@
-[package]
+﻿[package]
 name = "tcloud"
-version = "13.0.9"
-description = "TCloud — armazenamento e sincronização de arquivos no Windows com Telegram como backend."
+version = "13.0.10"
+description = "TCloud â€” armazenamento e sincronizaÃ§Ã£o de arquivos no Windows com Telegram como backend."
 authors = ["TCloud Development"]
 edition = "2021"
 
@@ -79,4 +79,5 @@ tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61.3", features = ["ApplicationModel", "Foundation", "Storage", "Storage_Search", "Storage_Provider"] }
+
 
