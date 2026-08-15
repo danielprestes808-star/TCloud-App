@@ -1,0 +1,52 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.npm-cache
+
+/src-tauri/gen/
+*.apk
+*.aab
+.gradle/
+local.properties
+
+# TCloud updater release material
+/src-tauri/.tauri.windows.updater.generated.conf.json
+/updater-release/
+
+# TCloud generated build/release artifacts
+/dist-shell/
+/release-artifacts/
+/stability-results/
+/src-tauri/target/
+
+# TCloud local credentials and secrets
+/src-tauri/.env.tcloud
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.p12
+*.key
+!/src-tauri/.env.tcloud.example

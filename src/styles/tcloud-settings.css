@@ -1,0 +1,323 @@
+.tcloud-settings {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px;
+  display: grid;
+  gap: 20px;
+}
+
+.tcloud-settings__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.tcloud-settings__eyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  opacity: .65;
+  margin-bottom: 8px;
+}
+
+.tcloud-settings h1,
+.tcloud-settings h2 {
+  margin: 0;
+}
+
+.tcloud-settings__header p,
+.tcloud-card p {
+  margin: 6px 0 0;
+  opacity: .7;
+}
+
+.tcloud-status,
+.tcloud-badge {
+  border: 1px solid rgba(127,127,127,.25);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.tcloud-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tcloud-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .45;
+}
+
+.tcloud-status.is-online,
+.tcloud-badge.is-success {
+  font-weight: 700;
+}
+
+.tcloud-card {
+  border: 1px solid rgba(127,127,127,.22);
+  border-radius: 18px;
+  padding: 22px;
+  background: rgba(127,127,127,.04);
+  display: grid;
+  gap: 18px;
+}
+
+.tcloud-card__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.tcloud-row {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.tcloud-input {
+  min-height: 42px;
+  border: 1px solid rgba(127,127,127,.28);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: transparent;
+  color: inherit;
+  min-width: 220px;
+  flex: 1;
+}
+
+.tcloud-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(127,127,127,.28);
+  background: rgba(127,127,127,.08);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.tcloud-button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.tcloud-button--primary {
+  font-weight: 800;
+}
+
+.tcloud-button--danger {
+  font-weight: 800;
+}
+
+.tcloud-switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.tcloud-switch-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.tcloud-switch-row span,
+.tcloud-field span,
+.tcloud-drive-letter span {
+  font-size: 13px;
+  opacity: .7;
+}
+
+.tcloud-switch-row input {
+  width: 20px;
+  height: 20px;
+}
+
+.tcloud-field,
+.tcloud-drive-letter {
+  display: grid;
+  gap: 6px;
+}
+
+.tcloud-drive-letter .tcloud-input {
+  min-width: 70px;
+  max-width: 80px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.tcloud-cache-bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(127,127,127,.12);
+  overflow: hidden;
+}
+
+.tcloud-cache-bar > div {
+  height: 100%;
+  background: currentColor;
+  opacity: .55;
+}
+
+.tcloud-cache-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  opacity: .7;
+}
+
+.tcloud-settings__message {
+  border: 1px solid rgba(127,127,127,.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(127,127,127,.06);
+}
+
+@media (max-width: 720px) {
+  .tcloud-settings {
+    padding: 20px;
+  }
+
+  .tcloud-settings__header,
+  .tcloud-card__title {
+    flex-direction: column;
+  }
+
+  .tcloud-row > * {
+    width: 100%;
+  }
+}
+
+.tcloud-settings--embedded {
+  max-width: none;
+  margin: 0;
+  padding: 20px;
+}
+
+.tcloud-folder-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.tcloud-folder-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.tcloud-folder-page__header p {
+  margin: 6px 0 0;
+  opacity: .7;
+}
+
+.tcloud-folder-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tcloud-folder-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 320px) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(127,127,127,.18);
+  border-radius: 12px;
+  padding-top: 10px;
+  padding-right: 10px;
+  padding-bottom: 10px;
+}
+
+.tcloud-folder-row__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tcloud-folder-row__main > div {
+  min-width: 0;
+  display: grid;
+}
+
+.tcloud-folder-row__main strong,
+.tcloud-folder-row__main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tcloud-folder-row__main span {
+  font-size: 12px;
+  opacity: .62;
+}
+
+.tcloud-folder-row__group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tcloud-folder-row__group .tcloud-input {
+  min-width: 0;
+}
+
+.tcloud-folder-empty {
+  padding: 30px;
+  text-align: center;
+  opacity: .62;
+}
+
+@media (max-width: 820px) {
+  .tcloud-folder-page__header {
+    flex-direction: column;
+  }
+
+  .tcloud-folder-row {
+    grid-template-columns: 1fr;
+    padding-left: 10px !important;
+  }
+}
+
+.tcloud-pairing-code {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 26px;
+  border: 1px dashed rgba(127,127,127,.3);
+  border-radius: 14px;
+}
+
+.tcloud-pairing-code span,
+.tcloud-pairing-code small {
+  opacity: .65;
+}
+
+.tcloud-pairing-code strong {
+  font-size: 38px;
+  letter-spacing: .18em;
+}
+
+
+/* TCloud 12.8 Stability Phase 3 — read-only recovery cards. */
+.tcloud-simple-static-card { display:flex; align-items:flex-start; gap:12px; min-height:74px; padding:14px; border:1px solid var(--border, rgba(148,163,184,.22)); border-radius:12px; background:color-mix(in srgb, var(--card, #111827) 94%, transparent); }
+.tcloud-simple-static-card > svg { flex:0 0 auto; margin-top:2px; }
+.tcloud-simple-static-card span { display:grid; gap:3px; min-width:0; }
+.tcloud-simple-static-card strong { font-size:13px; }
+.tcloud-simple-static-card small { color:var(--muted-foreground, #94a3b8); line-height:1.35; }

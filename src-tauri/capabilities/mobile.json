@@ -1,0 +1,14 @@
+{
+  "identifier": "mobile-only",
+  "description": "Permissions required only on Android",
+  "platforms": [
+    "android"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dialog:default",
+    "opener:default"
+  ]
+}
