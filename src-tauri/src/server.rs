@@ -40,7 +40,7 @@ struct DnsJsonAnswer {
     data: String,
 }
 
-/// Ad banner HTML matching the working cameronamer.com/ad-banner.html structure.
+/// TCloud embedded HTML support.
 /// Served from the streaming server so the iframe gets a real http://localhost origin.
 /// The external loader is relayed through `/ad-script` because some DNS security
 /// services rewrite the Adsterra loader hostname to a private address. The resulting

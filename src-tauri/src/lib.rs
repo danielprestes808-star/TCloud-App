@@ -649,6 +649,12 @@ pub fn run() {
             // Telegram is disconnected and are processed after authentication.
             sync::processor::start_processor(app.handle().clone(), db_pool.clone());
 
+            // TCloud 14.18 - backups automaticos pertencem ao backend.
+            // A janela React apenas configura e exibe o estado.
+            commands::tcloud_productivity::start_backup_scheduler(
+                db_pool.clone()
+            );
+
             // TCloud 12.8 Phase 2 — suspension/hibernation detector. Tokio timers
             // resume after Windows wakes, so a large gap between ticks is a reliable
             // low-cost signal that the machine slept. Reset transient network backoff
@@ -672,6 +678,10 @@ pub fn run() {
 
             #[cfg(target_os = "windows")]
             commands::tcloud_productivity::start_remote_reconcile_worker(app.handle().clone());
+
+            // 13.0.16: mobile/other-client folder changes continue to reach the
+            // local catalog and Explorer even while the window is in the tray.
+            commands::tcloud_forums::start_remote_forum_catalog_worker(app.handle().clone());
 
             // TCloud 12.3 — the CFAPI Sync Root is the authoritative local
             // workspace. Bind the watcher to it automatically instead of keeping a
@@ -917,6 +927,7 @@ pub fn run() {
             commands::initiate_upload,
             commands::cmd_upload_from_url,
             cmd_open_file_externally,
+            commands::cmd_has_saved_session,
             commands::cmd_connect_simple,
             commands::cmd_connect,
             commands::cmd_log,
@@ -1027,6 +1038,8 @@ pub fn run() {
             commands::tcloud_productivity::tcloud_pro_backup_mark_run,
             commands::tcloud_productivity::tcloud_pro_offline_pin,
             commands::tcloud_productivity::tcloud_pro_duplicates,
+            commands::tcloud_productivity::tcloud_pro_duplicates_scan_local,
+            commands::tcloud_productivity::tcloud_pro_duplicates_trash,
             commands::tcloud_productivity::tcloud_pro_cleanup_stats,
             commands::tcloud_productivity::tcloud_pro_reindex_text_content,
             commands::tcloud_productivity::tcloud_pro_content_search,

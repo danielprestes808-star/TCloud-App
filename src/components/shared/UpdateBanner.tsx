@@ -1,5 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, RefreshCw, Sparkles } from 'lucide-react';
+import { X, Download, Loader2 } from 'lucide-react';
 
 interface UpdateBannerProps {
     available: boolean;
@@ -16,61 +15,69 @@ export function UpdateBanner({
     downloading,
     progress,
     onUpdate,
-    onDismiss
+    onDismiss,
 }: UpdateBannerProps) {
+    if (!available) return null;
+
     return (
-        <AnimatePresence>
-            {available && (
-                <motion.div
-                    initial={{ opacity: 0, y: -50 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -50 }}
-                    className="fixed top-0 left-0 right-0 z-50 p-3 bg-gradient-to-r from-telegram-primary/90 via-blue-500/90 to-purple-500/90 backdrop-blur-sm shadow-lg"
-                >
-                    <div className="flex items-center justify-center gap-4 max-w-screen-lg mx-auto">
-                        <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
-
-                        <span className="text-white font-medium">
-                            {downloading ? (
-                                <>Downloading update... {progress}%</>
-                            ) : (
-                                <>A new version ({version}) is available!</>
-                            )}
-                        </span>
-
+        <div className="absolute top-0 left-0 right-0 z-[100] px-4 pt-3 pointer-events-none">
+            <div className="mx-auto max-w-3xl rounded-xl border border-telegram-border bg-telegram-panel/95 shadow-lg backdrop-blur-md pointer-events-auto">
+                <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-telegram-primary/10 text-telegram-primary">
                         {downloading ? (
-                            <div className="flex items-center gap-2">
-                                <RefreshCw className="w-4 h-4 text-white animate-spin" />
-                                <div className="w-32 h-2 bg-white/30 rounded-full overflow-hidden">
-                                    <motion.div
-                                        className="h-full bg-white rounded-full"
-                                        initial={{ width: 0 }}
-                                        animate={{ width: `${progress}%` }}
-                                    />
-                                </div>
-                            </div>
+                            <Loader2 className="h-5 w-5 animate-spin" />
                         ) : (
-                            <button
-                                onClick={onUpdate}
-                                className="flex items-center gap-2 px-4 py-1.5 bg-white text-telegram-primary font-semibold rounded-full hover:bg-white/90 transition-colors shadow-md"
-                            >
-                                <Download className="w-4 h-4" />
-                                Update Now
-                            </button>
-                        )}
-
-                        {!downloading && (
-                            <button
-                                onClick={onDismiss}
-                                className="p-1 text-white/70 hover:text-white transition-colors"
-                                title="Dismiss"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                            <Download className="h-5 w-5" />
                         )}
                     </div>
-                </motion.div>
-            )}
-        </AnimatePresence>
+
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-telegram-text">
+                            {downloading
+                                ? `Atualizando o TCloud para ${version ?? 'a nova versão'}...`
+                                : `Uma nova versão do TCloud (${version}) está disponível.`}
+                        </p>
+
+                        <p className="mt-0.5 text-xs text-telegram-subtext">
+                            {downloading
+                                ? progress > 0
+                                    ? `Baixando e preparando a atualização: ${progress}%`
+                                    : 'Preparando o download da atualização...'
+                                : 'A atualização será baixada, verificada e instalada automaticamente.'}
+                        </p>
+
+                        {downloading && (
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-telegram-border">
+                                <div
+                                    className="h-full rounded-full bg-telegram-primary transition-all duration-300"
+                                    style={{ width: `${Math.max(2, Math.min(progress, 100))}%` }}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {!downloading && (
+                        <button
+                            type="button"
+                            onClick={onUpdate}
+                            className="shrink-0 rounded-lg bg-telegram-primary px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                        >
+                            Atualizar agora
+                        </button>
+                    )}
+
+                    {!downloading && (
+                        <button
+                            type="button"
+                            onClick={onDismiss}
+                            aria-label="Fechar aviso de atualização"
+                            className="shrink-0 rounded-lg p-2 text-telegram-subtext transition-colors hover:bg-telegram-border/60 hover:text-telegram-text"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 }

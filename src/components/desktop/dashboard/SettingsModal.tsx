@@ -442,7 +442,7 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
         themes: 'Escolha como o TCloud deve parecer',
         encryption: 'Cofre, privacidade e proteção',
         sharing: 'Links e acessos compartilhados',
-        general: 'Desempenho e comportamento do aplicativo',
+        general: 'Preferências do aplicativo e comportamento geral',
         proxy: 'Configuração manual de proxy',
         vpn: 'Opções avançadas de rede',
         about: 'Versão, atualizações e informações do TCloud',
@@ -510,9 +510,9 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                 <div className="tcloud-settings-nav-group">
                                     <span>Avançado</span>
                                     {([
-                                        ['general', Globe, 'Ajustes técnicos'],
-                                        ['proxy', Wifi, 'Proxy'],
-                                        ['vpn', Gauge, 'Rede e VPN'],
+                                        ['general', Globe, 'Aplicativo'],
+                                        
+                                        
                                     ] as const).map(([key, Icon, label]) => (
                                         <button
                                             key={key}
@@ -621,62 +621,6 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                     <Upload className="w-3.5 h-3.5" />
                                     {t('settings.transfers')}
                                 </h3>
-
-                                {/* Max Concurrent Uploads */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div className="flex items-center gap-2">
-                                        <Upload className="w-4 h-4 text-telegram-subtext" />
-                                        <div>
-                                            <p className="text-sm text-telegram-text font-medium">{t('settings.concurrent_uploads')}</p>
-                                            <p className="text-xs text-telegram-subtext">{t('settings.max_uploads_desc')}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => updateSetting('maxConcurrentUploads', Math.max(1, settings.maxConcurrentUploads - 1))}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md bg-telegram-bg text-telegram-subtext hover:text-telegram-text hover:bg-telegram-border transition text-sm font-medium"
-                                        >
-                                            -
-                                        </button>
-                                        <span className="text-sm text-telegram-text font-medium w-5 text-center">
-                                            {settings.maxConcurrentUploads}
-                                        </span>
-                                        <button
-                                            onClick={() => updateSetting('maxConcurrentUploads', Math.min(10, settings.maxConcurrentUploads + 1))}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md bg-telegram-bg text-telegram-subtext hover:text-telegram-text hover:bg-telegram-border transition text-sm font-medium"
-                                        >
-                                            +
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Max Concurrent Downloads */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div className="flex items-center gap-2">
-                                        <Download className="w-4 h-4 text-telegram-subtext" />
-                                        <div>
-                                            <p className="text-sm text-telegram-text font-medium">{t('settings.concurrent_downloads')}</p>
-                                            <p className="text-xs text-telegram-subtext">{t('settings.max_downloads_desc')}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => updateSetting('maxConcurrentDownloads', Math.max(1, settings.maxConcurrentDownloads - 1))}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md bg-telegram-bg text-telegram-subtext hover:text-telegram-text hover:bg-telegram-border transition text-sm font-medium"
-                                        >
-                                            -
-                                        </button>
-                                        <span className="text-sm text-telegram-text font-medium w-5 text-center">
-                                            {settings.maxConcurrentDownloads}
-                                        </span>
-                                        <button
-                                            onClick={() => updateSetting('maxConcurrentDownloads', Math.min(10, settings.maxConcurrentDownloads + 1))}
-                                            className="w-7 h-7 flex items-center justify-center rounded-md bg-telegram-bg text-telegram-subtext hover:text-telegram-text hover:bg-telegram-border transition text-sm font-medium"
-                                        >
-                                            +
-                                        </button>
-                                    </div>
-                                </div>
 
                                 {/* Zip Folders */}
                                 <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
@@ -1064,59 +1008,6 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                     ) : (
                                         <div className="flex items-center justify-center py-2">
                                             <RefreshCw className="w-3 h-3 text-telegram-subtext animate-spin" />
-                                        </div>
-                                    )}
-                                </div>
-                            </section>
-
-                            {/* Updates Section */}
-                            <section className="space-y-3">
-                                <h3 className="text-xs font-semibold text-telegram-subtext uppercase tracking-wider flex items-center gap-2">
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    {t('settings.updates')}
-                                </h3>
-
-                                <div className="p-3 rounded-lg bg-telegram-hover/50 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Download className="w-4 h-4 text-telegram-subtext" />
-                                            <div>
-                                                <p className="text-sm text-telegram-text font-medium">{t('settings.check_for_updates')}</p>
-                                                <p className="text-xs text-telegram-subtext">
-                                                    {updateVersion ? t('settings.update_available', { version: updateVersion }) : t('settings.check_updates_desc')}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        {updateAvailable && !updateDownloading ? (
-                                            <button
-                                                onClick={handleInstallUpdate}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-telegram-primary text-white hover:bg-telegram-primary/90 transition"
-                                            >
-                                                <Download className="w-3 h-3" />
-                                                {t('settings.update_restart')}
-                                            </button>
-                                        ) : updateDownloading ? (
-                                            <div className="flex items-center gap-2">
-                                                <RefreshCw className="w-3.5 h-3.5 text-telegram-primary animate-spin" />
-                                                <span className="text-xs text-telegram-primary font-mono">{updateProgress}%</span>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                onClick={handleCheckForUpdates}
-                                                disabled={updateChecking}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-telegram-primary/10 text-telegram-primary hover:bg-telegram-primary/20 transition disabled:opacity-50"
-                                            >
-                                                <RefreshCw className={`w-3 h-3 ${updateChecking ? 'animate-spin' : ''}`} />
-                                                {updateChecking ? t('settings.checking') : t('settings.check_now')}
-                                            </button>
-                                        )}
-                                    </div>
-                                    {updateDownloading && (
-                                        <div className="w-full h-1.5 bg-telegram-border rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-telegram-primary rounded-full transition-all duration-300"
-                                                style={{ width: `${updateProgress}%` }}
-                                            />
                                         </div>
                                     )}
                                 </div>
@@ -1776,6 +1667,61 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                                 <h3 className="text-base font-bold text-telegram-text">TCloud</h3>
                                                 <p className="text-xs text-telegram-subtext mt-0.5">v{appVersion}</p>
                                             </div>
+                                            {/* TCloud Updates */}
+                                            <div className="w-full max-w-md">
+{/* Updates Section */}
+                            <section className="space-y-3">
+                                <h3 className="text-xs font-semibold text-telegram-subtext uppercase tracking-wider flex items-center gap-2">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    {t('settings.updates')}
+                                </h3>
+
+                                <div className="p-3 rounded-lg bg-telegram-hover/50 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Download className="w-4 h-4 text-telegram-subtext" />
+                                            <div>
+                                                <p className="text-sm text-telegram-text font-medium">{t('settings.check_for_updates')}</p>
+                                                <p className="text-xs text-telegram-subtext">
+                                                    {updateVersion ? t('settings.update_available', { version: updateVersion }) : t('settings.check_updates_desc')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {updateAvailable && !updateDownloading ? (
+                                            <button
+                                                onClick={handleInstallUpdate}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-telegram-primary text-white hover:bg-telegram-primary/90 transition"
+                                            >
+                                                <Download className="w-3 h-3" />
+                                                {t('settings.update_restart')}
+                                            </button>
+                                        ) : updateDownloading ? (
+                                            <div className="flex items-center gap-2">
+                                                <RefreshCw className="w-3.5 h-3.5 text-telegram-primary animate-spin" />
+                                                <span className="text-xs text-telegram-primary font-mono">{updateProgress}%</span>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={handleCheckForUpdates}
+                                                disabled={updateChecking}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-telegram-primary/10 text-telegram-primary hover:bg-telegram-primary/20 transition disabled:opacity-50"
+                                            >
+                                                <RefreshCw className={`w-3 h-3 ${updateChecking ? 'animate-spin' : ''}`} />
+                                                {updateChecking ? t('settings.checking') : t('settings.check_now')}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {updateDownloading && (
+                                        <div className="w-full h-1.5 bg-telegram-border rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-telegram-primary rounded-full transition-all duration-300"
+                                                style={{ width: `${updateProgress}%` }}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                                            </div>
 
                                             {/* Divider */}
                                             <div className="w-12 h-px bg-telegram-border" />
@@ -1808,27 +1754,18 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                             {/* Creator Info */}
                                             <div className="text-center space-y-3">
                                                 <div>
-                                                    <p className="text-sm font-semibold text-telegram-text">Cameron Amer</p>
+                                                    <p className="text-sm font-semibold text-telegram-text">TCloud</p>
                                                 </div>
-
-                                                {/* Website Link */}
-                                                <button
-                                                    onClick={(e) => { e.preventDefault(); void openUrl('https://www.cameronamer.com'); }}
-                                                    className="flex items-center justify-center gap-1.5 text-xs text-telegram-primary hover:text-telegram-primary/80 transition-colors cursor-pointer"
-                                                >
-                                                    <Globe className="w-3.5 h-3.5" />
-                                                    www.cameronamer.com
-                                                </button>
 
                                                 {/* GitHub Link */}
                                                 <button
-                                                    onClick={(e) => { e.preventDefault(); void openUrl('https://github.com/caamer20/telegram-drive'); }}
+                                                    onClick={(e) => { e.preventDefault(); void openUrl('https://github.com/danielprestes808-star/TCloud-Releases'); }}
                                                     className="flex items-center justify-center gap-1.5 text-xs text-telegram-primary hover:text-telegram-primary/80 transition-colors cursor-pointer"
                                                 >
                                                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                                                         <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
                                                     </svg>
-                                                    github.com/caamer20/telegram-drive
+                                                    github.com/danielprestes808-star/TCloud-Releases
                                                 </button>
                                             </div>
 

@@ -17,19 +17,31 @@ const AUDIO_EXTENSIONS = ['mp3', 'wav', 'aac', 'flac', 'm4a', 'opus'] as const;
 const MEDIA_EXTENSIONS: readonly string[] = [...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS];
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif'] as const;
 
+const fileExtension = (name: string): string => {
+    const normalized = name
+        .replace(/\u00a0/g, ' ')
+        .trim()
+        .toLowerCase();
+
+    const dot = normalized.lastIndexOf('.');
+    if (dot < 0 || dot === normalized.length - 1) return '';
+
+    return normalized.slice(dot + 1).trim();
+};
+
 const endsWithAny = (name: string, exts: readonly string[]) => {
-    const lower = name.toLowerCase();
-    return exts.some(ext => lower.endsWith(ext));
+    const ext = fileExtension(name);
+    return ext.length > 0 && exts.includes(ext);
 };
 
 export const isMediaFile   = (name: string) => endsWithAny(name, MEDIA_EXTENSIONS);
 export const isVideoFile   = (name: string) => endsWithAny(name, VIDEO_EXTENSIONS);
 export const isAudioFile   = (name: string) => endsWithAny(name, AUDIO_EXTENSIONS);
 export const isImageFile   = (name: string) => endsWithAny(name, IMAGE_EXTENSIONS);
-export const isPdfFile     = (name: string) => name.toLowerCase().endsWith('.pdf');
-export const isZipFile     = (name: string) => name.toLowerCase().endsWith('.zip');
-export const isRarFile     = (name: string) => name.toLowerCase().endsWith('.rar');
-export const isSevenZFile  = (name: string) => name.toLowerCase().endsWith('.7z');
+export const isPdfFile     = (name: string) => fileExtension(name) === 'pdf';
+export const isZipFile     = (name: string) => fileExtension(name) === 'zip';
+export const isRarFile     = (name: string) => fileExtension(name) === 'rar';
+export const isSevenZFile  = (name: string) => fileExtension(name) === '7z';
 export const isArchiveFile = (name: string) => isZipFile(name) || isRarFile(name) || isSevenZFile(name);
 
 // ── HTML file input fallback for when Tauri dialog open() fails ──────────

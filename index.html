@@ -54,10 +54,10 @@
       var title = el.querySelector('[data-boot-title]');
       var message = el.querySelector('[data-boot-message]');
       var detail = el.querySelector('[data-boot-detail]');
-      if (title) title.textContent = 'A interface demorou mais que o esperado';
-      if (message) message.textContent = 'O processo está ativo, mas o frontend não concluiu a inicialização.';
-      if (detail) detail.textContent = 'Timeout de inicialização do frontend (10 s).';
-    }, 10000);
+      if (title) title.textContent = 'O TCloud ainda está iniciando';
+      if (message) message.textContent = 'Alguns serviços ainda estão sendo preparados em segundo plano.';
+      if (detail) detail.textContent = 'A inicialização está levando mais tempo que o normal (30 s).';
+    }, 30000);
   </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>

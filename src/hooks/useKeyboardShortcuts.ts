@@ -38,7 +38,14 @@ export function useKeyboardShortcuts({
         if (!enabled) return;
 
         const target = e.target as HTMLElement;
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) {
+        if (
+            target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable ||
+            target.closest('[contenteditable="true"]') ||
+            target.closest('[role="dialog"]')
+        ) {
             if (e.key === 'Escape') {
                 target.blur();
                 onEscape();

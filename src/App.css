@@ -708,9 +708,9 @@ textarea:disabled {
   border-color: transparent;
 }
 
-/* ── Performance Mode ──────────────────────────────────────── */
+/* â”€â”€ Performance Mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Disables GPU-heavy effects for WebKitGTK / older hardware.  */
-/* Toggle via Settings → General → Performance Mode.           */
+/* Toggle via Settings â†’ General â†’ Performance Mode.           */
 
 /* Fast restore: while a minimized/hidden WebView is producing its first
    frames again, briefly disable expensive polish. The class is removed by the
@@ -806,7 +806,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud Desktop 5.1 — refreshed application shell
+   TCloud Desktop 5.1 â€” refreshed application shell
    ============================================================ */
 
 .tcloud-desktop-shell {
@@ -943,7 +943,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud Desktop 5.1.1 — original product identity
+   TCloud Desktop 5.1.1 â€” original product identity
    ============================================================ */
 
 .tcloud-sidebar {
@@ -1220,7 +1220,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 5.2 — Explorer identity
+   TCloud 5.2 â€” Explorer identity
    ============================================================ */
 
 .tcloud-explorer-heading {
@@ -1577,7 +1577,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 5.3 — Home Dashboard
+   TCloud 5.3 â€” Home Dashboard
    ============================================================ */
 
 .tcloud-home-dashboard {
@@ -1987,7 +1987,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 5.4 — Advanced Preview
+   TCloud 5.4 â€” Advanced Preview
    ============================================================ */
 
 .tcloud-viewer-overlay {
@@ -2173,7 +2173,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 5.5 — Search & Filters
+   TCloud 5.5 â€” Search & Filters
    ============================================================ */
 
 .tcloud-search-zone {
@@ -2354,7 +2354,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 6.0 — Product consolidation
+   TCloud 6.0 â€” Product consolidation
    ============================================================ */
 
 .tcloud-transfer-center {
@@ -2789,12 +2789,12 @@ textarea:disabled {
 }
 
 
-/* TCloud 6.1 — Saved Messages + always-mounted drive */
+/* TCloud 6.1 â€” Saved Messages + always-mounted drive */
 .tcloud-side-home{display:flex;flex-direction:column;gap:.35rem;}
 
 
 /* ============================================================
-   TCloud 6.2 — Simplified Interface
+   TCloud 6.2 â€” Simplified Interface
    ============================================================ */
 
 .tcloud-advanced-toggle {
@@ -2873,7 +2873,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 6.3 — Explorer/Search polish
+   TCloud 6.3 â€” Explorer/Search polish
    ============================================================ */
 
 .tcloud-topbar-grid {
@@ -2985,7 +2985,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 6.4 — Drive-style home
+   TCloud 6.4 â€” Drive-style home
    ============================================================ */
 
 .tcloud-drive-new-wrap {
@@ -3274,7 +3274,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 6.4.2 — Alignment polish
+   TCloud 6.4.2 â€” Alignment polish
    ============================================================ */
 
 .tcloud-topbar {
@@ -3359,7 +3359,7 @@ textarea:disabled {
 .tcloud-sync-pill,
 .tcloud-view-toggle,
 .tcloud-topbar .quiet-control,
-.tcloud-topbar button[title="Configurações"] {
+.tcloud-topbar button[title="ConfiguraÃ§Ãµes"] {
   align-self: center;
 }
 
@@ -3452,7 +3452,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 6.5 — Fine visual refinement
+   TCloud 6.5 â€” Fine visual refinement
    ============================================================ */
 
 .tcloud-main-pane {
@@ -3741,7 +3741,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 6.6 — Performance & rendering
+   TCloud 6.6 â€” Performance & rendering
    ============================================================ */
 
 .tcloud-file-card {
@@ -3772,11 +3772,11 @@ textarea:disabled {
 }
 
 
-/* TCloud 7.0 — Forum storage */
+/* TCloud 7.0 â€” Forum storage */
 .tcloud-forum-modal{width:min(680px,calc(100vw - 2rem));overflow:hidden;border:1px solid var(--color-app-border);border-radius:1.1rem;background:var(--color-app-surface-raised);box-shadow:0 30px 90px rgba(0,0,0,.34)}.tcloud-forum-header{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1rem;border-bottom:1px solid var(--color-app-border-subtle)}.tcloud-forum-logo,.tcloud-forum-card-icon{display:grid;place-items:center;border-radius:.7rem;background:color-mix(in srgb,var(--color-app-accent) 12%,transparent);color:var(--color-app-accent)}.tcloud-forum-logo{width:2.4rem;height:2.4rem}.tcloud-forum-header span:not(.tcloud-forum-logo){font-size:.54rem;font-weight:800;color:var(--color-app-accent)}.tcloud-forum-header h2{margin:.1rem 0 0;color:var(--color-app-text);font-size:.95rem}.tcloud-forum-body{padding:1rem}.tcloud-forum-intro{display:grid;grid-template-columns:auto 1fr;gap:.65rem;padding:.75rem;border:1px solid var(--color-app-border-subtle);border-radius:.85rem}.tcloud-forum-intro strong{font-size:.68rem}.tcloud-forum-intro p{margin:.15rem 0 0;color:var(--color-app-text-tertiary);font-size:.59rem}.tcloud-forum-list{display:flex;flex-direction:column;gap:.45rem;margin-top:.8rem}.tcloud-forum-card{display:flex;align-items:center;gap:.65rem;padding:.55rem .65rem;border:1px solid var(--color-app-border-subtle);border-radius:.8rem}.tcloud-forum-card-icon{width:2.1rem;height:2.1rem}.tcloud-forum-card strong,.tcloud-forum-card small{display:block}.tcloud-forum-card small{color:var(--color-app-text-tertiary);font-size:.53rem}.tcloud-forum-card button,.tcloud-forum-default{padding:.4rem .55rem;border-radius:.55rem;font-size:.56rem}.tcloud-forum-default{color:var(--color-app-success);background:color-mix(in srgb,var(--color-app-success) 10%,transparent)}.tcloud-forum-create{margin-top:.9rem;padding-top:.8rem;border-top:1px solid var(--color-app-border-subtle)}.tcloud-forum-create-row{display:grid;grid-template-columns:1fr auto;gap:.45rem;margin-top:.5rem}.tcloud-forum-create-row input{min-height:2.45rem;padding:0 .7rem;border:1px solid var(--color-app-border);border-radius:.65rem;background:var(--color-app-surface-sunken)}.tcloud-forum-create-row button{display:flex;align-items:center;gap:.35rem;padding:0 .75rem;border-radius:.65rem;background:var(--color-app-accent);color:white}
 
 
-/* TCloud 7.1 — Simplified Telegram login */
+/* TCloud 7.1 â€” Simplified Telegram login */
 .auth-glass {
   max-width: 27rem;
 }
@@ -3788,7 +3788,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 7.2 — Fast previews
+   TCloud 7.2 â€” Fast previews
    ============================================================ */
 .tcloud-file-visual .animate-pulse {
   animation-duration: 1.15s;
@@ -3803,7 +3803,7 @@ textarea:disabled {
 }
 
 
-/* TCloud 7.3.2 — Drive controls */
+/* TCloud 7.3.2 â€” Drive controls */
 .tcloud-drive-persistent-note {
   display: flex;
   flex-direction: column;
@@ -3826,7 +3826,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 7.4 — Forum migration
+   TCloud 7.4 â€” Forum migration
    ============================================================ */
 .tcloud-forum-modal-wide{width:min(820px,calc(100vw - 2rem));max-height:min(88vh,860px);overflow:auto}
 .tcloud-forum-migration{margin-top:1rem;border-top:1px solid var(--color-app-border-subtle);padding-top:1rem}
@@ -3855,7 +3855,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 7.5 — Forum tree and performance
+   TCloud 7.5 â€” Forum tree and performance
    ============================================================ */
 .tcloud-forum-tree-row {
   display: grid;
@@ -4027,7 +4027,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 7.5.2 — Brazil login
+   TCloud 7.5.2 â€” Brazil login
    ============================================================ */
 .auth-phone-row {
   display: flex;
@@ -4060,7 +4060,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 7.6 — Minimal premium + smoother browsing
+   TCloud 7.6 â€” Minimal premium + smoother browsing
    ============================================================ */
 .tcloud-drive-home {
   padding-top: 1.2rem;
@@ -4092,13 +4092,6 @@ textarea:disabled {
 }
 .tcloud-explorer-title-row p {
   margin-top: .12rem;
-}
-.tcloud-file-card {
-  box-shadow: none;
-  transition: transform 130ms ease, border-color 130ms ease, background-color 130ms ease;
-}
-.tcloud-file-card:hover {
-  transform: translateY(-1px);
 }
 .tcloud-file-actions {
   opacity: 0;
@@ -4151,7 +4144,7 @@ textarea:disabled {
 }
 
 /* ============================================================
-   TCloud 8.0 — Advanced Center
+   TCloud 8.0 â€” Advanced Center
    ============================================================ */
 .tcloud-pro-modal{width:min(1120px,calc(100vw - 2rem));height:min(820px,calc(100vh - 2rem));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--color-app-border);border-radius:1rem;background:var(--color-app-canvas);box-shadow:0 24px 80px rgba(0,0,0,.38)}
 .tcloud-pro-header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding:1rem 1.1rem;border-bottom:1px solid var(--color-app-border-subtle);background:color-mix(in srgb,var(--color-app-surface) 88%,transparent)}
@@ -4200,7 +4193,7 @@ textarea:disabled {
 .tcloud-pro-empty{display:grid;min-height:8rem;place-items:center;border:1px dashed var(--color-app-border);border-radius:.7rem;font-size:.62rem;color:var(--color-app-text-tertiary)}
 @media(max-width:760px){.tcloud-pro-layout{grid-template-columns:1fr}.tcloud-pro-nav{display:flex;border-right:0;border-bottom:1px solid var(--color-app-border-subtle);overflow:auto}.tcloud-pro-nav button{width:auto;min-width:max-content;grid-template-columns:1.2rem 1.2rem auto}.tcloud-pro-form-grid{grid-template-columns:1fr}}
 
-/* TCloud 8 — File details panel */
+/* TCloud 8 â€” File details panel */
 .tcloud-details-panel{position:fixed;z-index:70;top:3.55rem;right:.65rem;bottom:.65rem;width:min(310px,calc(100vw - 1.3rem));overflow:auto;border:1px solid var(--color-app-border);border-radius:.85rem;background:color-mix(in srgb,var(--color-app-canvas) 96%,transparent);box-shadow:0 18px 55px rgba(0,0,0,.28);backdrop-filter:blur(18px)}
 .tcloud-details-panel>header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--color-app-border-subtle);padding:.7rem}.tcloud-details-panel>header>div{display:flex;align-items:center;gap:.4rem;font-size:.68rem;color:var(--color-app-text)}.tcloud-details-panel>header button{display:grid;width:1.8rem;height:1.8rem;place-items:center;border-radius:.45rem;color:var(--color-app-text-tertiary)}.tcloud-details-panel>header button:hover{background:var(--color-app-hover);color:var(--color-app-text)}
 .tcloud-details-preview{display:flex;min-height:10rem;flex-direction:column;align-items:center;justify-content:center;gap:.35rem;border-bottom:1px solid var(--color-app-border-subtle);padding:1rem;text-align:center}.tcloud-details-preview>span{display:grid;width:3rem;height:3rem;place-items:center;border-radius:.8rem;background:var(--color-app-selected);font-size:.55rem;font-weight:800;color:var(--color-app-accent)}.tcloud-details-preview strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem;color:var(--color-app-text)}.tcloud-details-preview small{font-size:.55rem;color:var(--color-app-text-tertiary)}
@@ -4209,7 +4202,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 8.0.1 — Reliable mouse-wheel scrolling
+   TCloud 8.0.1 â€” Reliable mouse-wheel scrolling
    ============================================================ */
 .tcloud-main-pane {
   min-height: 0;
@@ -4237,7 +4230,7 @@ textarea:disabled {
 
 
 /* ============================================================
-   TCloud 9.0 — Unified experience
+   TCloud 9.0 â€” Unified experience
    ============================================================ */
 .tcloud-pro-nav{overflow-y:auto;overscroll-behavior:contain}
 .tcloud-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.55rem;max-height:58vh;overflow:auto;padding:.2rem}
@@ -4254,7 +4247,7 @@ textarea:disabled {
 .tcloud-switch-row{display:flex;align-items:flex-start;gap:.65rem;border:1px solid var(--color-app-border-subtle);border-radius:.7rem;padding:.7rem}.tcloud-switch-row input{margin-top:.15rem;accent-color:var(--color-app-accent)}.tcloud-switch-row strong,.tcloud-switch-row small{display:block}.tcloud-switch-row strong{font-size:.64rem;color:var(--color-app-text)}.tcloud-switch-row small{margin-top:.14rem;font-size:.53rem;color:var(--color-app-text-tertiary)}
 .tcloud-error-row{border:1px solid var(--color-app-border-subtle);border-radius:.6rem;background:var(--color-app-surface);padding:.55rem}.tcloud-error-row summary{cursor:pointer}.tcloud-error-row strong,.tcloud-error-row small{display:block}.tcloud-error-row strong{font-size:.6rem;color:var(--color-app-danger)}.tcloud-error-row small{margin-top:.15rem;font-size:.48rem;color:var(--color-app-text-tertiary)}.tcloud-error-row pre{max-height:12rem;overflow:auto;margin-top:.5rem;white-space:pre-wrap;font-size:.5rem;color:var(--color-app-text-secondary)}
 
-/* TCloud 9.0.2 — forum folder management */
+/* TCloud 9.0.2 â€” forum folder management */
 .tcloud-topic-tree-item {
   position: relative;
   display: flex;
@@ -4345,7 +4338,7 @@ textarea:disabled {
 .tcloud-topic-transfer-actions button.is-primary { background:var(--color-app-accent); color:#fff; }
 .tcloud-topic-transfer-actions button:disabled { opacity:.5; cursor:not-allowed; }
 
-/* TCloud 9.0.4 — forum topic menu visibility */
+/* TCloud 9.0.4 â€” forum topic menu visibility */
 .tcloud-forum-tree-children.is-expanded .tcloud-forum-tree-children-inner {
   overflow: visible;
 }
@@ -4365,7 +4358,7 @@ textarea:disabled {
   opacity: 1;
 }
 
-/* TCloud 10 — storage analytics */
+/* TCloud 10 â€” storage analytics */
 .tcloud-storage-map { display: flex; flex-direction: column; gap: .7rem; }
 .tcloud-storage-map-row { display: grid; grid-template-columns: minmax(150px, 220px) minmax(180px, 1fr) 56px; align-items: center; gap: .75rem; }
 .tcloud-storage-map-row > div:first-child { display: flex; flex-direction: column; min-width: 0; }
@@ -4381,7 +4374,7 @@ textarea:disabled {
 @media (max-width: 760px) { .tcloud-storage-map-row { grid-template-columns: 1fr 48px; } .tcloud-storage-bar { grid-column: 1 / -1; order: 3; } }
 
 /* ================================================================
-   TCloud 11.0 — Explorer Redesign Base
+   TCloud 11.0 â€” Explorer Redesign Base
    ================================================================ */
 :root {
   --tcloud-explorer-bg: #0d111a;
@@ -5211,47 +5204,6 @@ body,
   box-shadow: none !important;
 }
 
-.tcloud-file-card {
-  border-color: color-mix(in srgb, var(--color-app-border) 82%, transparent) !important;
-}
-
-@media (max-width: 1120px) {
-  .tcloud-explorer-location-row {
-    grid-template-columns: minmax(160px, .8fr) minmax(260px, 1.4fr) 34px;
-  }
-  .tcloud-explorer-command span {
-    display: none;
-  }
-  .tcloud-explorer-command {
-    width: 32px;
-    padding: 0;
-  }
-}
-
-/* ============================================================
-   TCloud 11.1 — Explorer file views
-   ============================================================ */
-.tcloud-explorer {
-  background: var(--color-app-bg);
-}
-
-.tcloud-file-card {
-  border-radius: 8px !important;
-  background: color-mix(in srgb, var(--color-app-surface-raised) 72%, var(--color-app-bg)) !important;
-  transition: border-color 110ms ease, background-color 110ms ease !important;
-}
-
-.tcloud-file-card:hover {
-  transform: none !important;
-  border-color: color-mix(in srgb, var(--color-app-accent) 24%, var(--color-app-border)) !important;
-  background: color-mix(in srgb, var(--color-app-accent) 4%, var(--color-app-surface-raised)) !important;
-}
-
-.tcloud-file-card.is-selected {
-  border-color: color-mix(in srgb, var(--color-app-accent) 72%, var(--color-app-border)) !important;
-  background: color-mix(in srgb, var(--color-app-accent) 8%, var(--color-app-surface-raised)) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-app-accent) 32%, transparent) !important;
-}
 
 .tcloud-file-card-standard .tcloud-file-visual {
   inset: 0 0 2.9rem 0;
@@ -5522,7 +5474,7 @@ body,
 }
 
 /* ============================================================
-   TCloud 11.2 — Explorer details pane + context menu
+   TCloud 11.2 â€” Explorer details pane + context menu
    ============================================================ */
 .tcloud-details-panel {
   position: relative;
@@ -5633,7 +5585,7 @@ body,
 }
 
 /* ============================================================
-   TCloud 11.3 — Explorer home, settings page and transfers
+   TCloud 11.3 â€” Explorer home, settings page and transfers
    ============================================================ */
 
 /* Home: remove dashboard-like visual weight and behave like Explorer landing page. */
@@ -5897,7 +5849,7 @@ body,
 }
 
 /* ============================================================
-   TCloud 11.4 — Brand identity and final visual polish
+   TCloud 11.4 â€” Brand identity and final visual polish
    ============================================================ */
 :root {
   --tcloud-brand-1: #8b83ff;
@@ -6369,7 +6321,7 @@ body,
   animation: none !important;
 }
 
-/* TCloud 12.4 — sync control center */
+/* TCloud 12.4 â€” sync control center */
 .tcloud-cache-summary > label {
   border: 1px solid var(--color-app-border-subtle);
   border-radius: .65rem;
@@ -6398,7 +6350,7 @@ body,
 }
 
 /* ================================================================
-   TCloud 12.6 — Simple UI / linguagem acessível
+   TCloud 12.6 â€” Simple UI / linguagem acessÃ­vel
    ================================================================ */
 .tcloud-simple-home {
   display: grid;
@@ -6524,7 +6476,7 @@ body,
 .tcloud-settings-advanced-details > summary::-webkit-details-marker,
 .tcloud-simple-details > summary::-webkit-details-marker { display:none; }
 .tcloud-settings-advanced-details > summary::after,
-.tcloud-simple-details > summary::after { content:'›'; float:right; transform:rotate(90deg); color:var(--color-app-text-tertiary); }
+.tcloud-simple-details > summary::after { content:'â€º'; float:right; transform:rotate(90deg); color:var(--color-app-text-tertiary); }
 .tcloud-settings-advanced-details[open] > summary::after,
 .tcloud-simple-details[open] > summary::after { transform:rotate(-90deg); }
 .tcloud-settings-advanced-details > p,
@@ -6559,7 +6511,7 @@ body,
 .tcloud-simple-description { margin:0 0 .8rem; font-size:.6rem; line-height:1.5; color:var(--color-app-text-secondary); }
 .tcloud-simple-error { color:var(--color-app-danger) !important; }
 
-/* Deixa os nomes principais mais fáceis de ler sem aumentar o peso visual. */
+/* Deixa os nomes principais mais fÃ¡ceis de ler sem aumentar o peso visual. */
 .tcloud-settings-nav-item { font-size:.64rem; }
 .tcloud-settings-nav-group > span { font-size:.5rem; }
 .tcloud-explorer-brand span { text-transform:none !important; letter-spacing:0 !important; }
@@ -6570,7 +6522,7 @@ body,
   .tcloud-simple-help-strip { align-items:flex-start; flex-wrap:wrap; }
 }
 
-/* TCloud 12.6.2 — one-click Windows connection */
+/* TCloud 12.6.2 â€” one-click Windows connection */
 .tcloud-computer-connect {
   display:grid;
   grid-template-columns:auto minmax(0,1fr) auto;
@@ -6674,7 +6626,7 @@ body,
   font-weight:700;
 }
 
-/* TCloud 12.6.2 — unified Explorer availability states */
+/* TCloud 12.6.2 â€” unified Explorer availability states */
 .tcloud-file-availability{display:inline-flex;align-items:center;gap:5px;min-width:0;font-size:11px;line-height:1;color:var(--app-text-secondary)}
 .tcloud-file-availability.is-compact{width:18px;height:18px;justify-content:center;border-radius:999px;background:color-mix(in srgb,var(--app-surface) 88%,transparent)}
 .tcloud-file-availability.is-local{color:var(--app-success)}
@@ -6684,7 +6636,7 @@ body,
 .tcloud-row-status .tcloud-file-availability{max-width:100%;overflow:hidden}
 .tcloud-row-status .tcloud-file-availability span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* TCloud 12.6.2 Parte 6 — ações simples da Lixeira */
+/* TCloud 12.6.2 Parte 6 â€” aÃ§Ãµes simples da Lixeira */
 .tcloud-trash-actions {
   display: flex;
   justify-content: flex-end;
@@ -6720,7 +6672,7 @@ body,
   cursor: default;
 }
 
-/* TCloud 12.6.2 Parte 7 — recuperação simples de ações do Explorer */
+/* TCloud 12.6.2 Parte 7 â€” recuperaÃ§Ã£o simples de aÃ§Ãµes do Explorer */
 .tcloud-computer-warning button {
   margin-left:.55rem;
   border:1px solid color-mix(in srgb,var(--color-app-warning) 40%,var(--color-app-border-subtle));
@@ -6735,7 +6687,7 @@ body,
 .tcloud-computer-warning button:disabled { opacity:.5; cursor:not-allowed; }
 
 /* ================================================================
-   TCloud 12.7 — interface alinhada ao Explorer e recuperação automática
+   TCloud 12.7 â€” interface alinhada ao Explorer e recuperaÃ§Ã£o automÃ¡tica
    ================================================================ */
 .tcloud-explorer-nav-badge{margin-left:auto;min-width:1.15rem;height:1.15rem;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:0 .28rem;font-size:.48rem;line-height:1;font-weight:800;background:var(--color-app-hover);color:var(--color-app-text-secondary)}
 .tcloud-explorer-nav-badge.is-danger{background:color-mix(in srgb,var(--color-app-danger) 15%,transparent);color:var(--color-app-danger)}
@@ -6789,7 +6741,7 @@ body,
 
 
 /* ============================================================
-   TCloud 12.7.1 Parte 3 — Explorer navigation polish
+   TCloud 12.7.1 Parte 3 â€” Explorer navigation polish
    ============================================================ */
 .tcloud-context-menu {
   width: 232px;
@@ -6883,7 +6835,7 @@ body,
 }
 
 
-/* TCloud 12.7.2 — Explorer integration final */
+/* TCloud 12.7.2 â€” Explorer integration final */
 .tcloud-computer-availability-summary {
   display: flex;
   flex-wrap: wrap;
@@ -6963,7 +6915,7 @@ body,
 .tcloud-inline-editor-action:disabled { opacity: .45; cursor: default; }
 .tcloud-context-item kbd { margin-inline-start: auto; font-size: .58rem; opacity: .55; font-family: inherit; }
 
-/* TCloud 12.8 Explorer Logic Stage 5 — one clean folder tree, Windows-like inline rename */
+/* TCloud 12.8 Explorer Logic Stage 5 â€” one clean folder tree, Windows-like inline rename */
 .tcloud-explorer-tree-spacer {
   width: 22px;
   height: 1px;
@@ -7020,7 +6972,7 @@ body,
   color: var(--color-app-text);
 }
 
-/* TCloud 12.8.2 — simple desktop/background controls */
+/* TCloud 12.8.2 â€” simple desktop/background controls */
 .tcloud-simple-preference-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin-top:.65rem}
 .tcloud-simple-select-row{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.7rem;border:1px solid var(--color-app-border-subtle);border-radius:.7rem;padding:.7rem;background:var(--color-app-canvas)}
 .tcloud-simple-select-row>svg{color:var(--color-app-accent)}
@@ -7034,7 +6986,7 @@ body,
 
 
 /* ============================================================
-   TCloud 12.9 — Fluidity pass
+   TCloud 12.9 â€” Fluidity pass
    Keep the visual identity while avoiding expensive repaints on
    persistent surfaces during Explorer scrolling and transfers.
    ============================================================ */
@@ -7065,7 +7017,7 @@ body,
 }
 
 
-/* TCloud 12.9.1 — fast-scroll paint budget.
+/* TCloud 12.9.1 â€” fast-scroll paint budget.
    The class is toggled directly on the scroll container, so entering/leaving
    fast-scroll mode never causes a React render. */
 .tcloud-fluidity-mode .tcloud-explorer.is-scrolling .tcloud-file-card,
@@ -7081,7 +7033,7 @@ body,
 }
 
 /* ============================================================
-   TCloud 13.0 — Explorer Experience Preview
+   TCloud 13.0 â€” Explorer Experience Preview
    Product-facing simplification pass. Keeps the 12.9 performance
    budget while making navigation, status and setup Windows-like.
    ============================================================ */
@@ -7345,7 +7297,7 @@ body,
 }
 
 /* ============================================================
-   TCloud 13.0.1 — Navigation Unification & Visual Refresh
+   TCloud 13.0.1 â€” Navigation Unification & Visual Refresh
    Midnight Graphite + Periwinkle identity
    ============================================================ */
 :root {
@@ -7534,13 +7486,6 @@ body,
 .tcloud-explorer { background: var(--color-app-canvas); }
 .tcloud-explorer-statusbar { background: var(--tcloud-explorer-sidebar); border-top-color: var(--tcloud-explorer-border); }
 
-.tcloud-file-card {
-  border-color: var(--color-app-border-subtle) !important;
-  border-radius: 9px !important;
-  background: color-mix(in srgb, var(--color-app-surface-raised) 76%, var(--color-app-canvas)) !important;
-}
-.tcloud-file-card:hover { border-color: color-mix(in srgb, var(--color-app-accent) 28%, var(--color-app-border)) !important; background: color-mix(in srgb, var(--color-app-accent) 5%, var(--color-app-surface-raised)) !important; }
-.tcloud-file-card.is-selected { border-color: color-mix(in srgb, var(--color-app-accent) 68%, var(--color-app-border)) !important; background: color-mix(in srgb, var(--color-app-accent) 11%, var(--color-app-surface-raised)) !important; }
 
 /* Unified utility/collection views live inside the Explorer canvas. */
 .tcloud-workspace-view {
@@ -7717,9 +7662,9 @@ body,
 
 
 /* ============================================================
-   TCloud 13.0.1 Hotfix — Settings Layout
-   Corrige a regra antiga de 980x720 que deixava Configurações
-   presa à esquerda e restaura uma página responsiva de verdade.
+   TCloud 13.0.1 Hotfix â€” Settings Layout
+   Corrige a regra antiga de 980x720 que deixava ConfiguraÃ§Ãµes
+   presa Ã  esquerda e restaura uma pÃ¡gina responsiva de verdade.
    ============================================================ */
 .tcloud-settings-page-shell {
   inset: 24px 0 0 !important;
@@ -7813,7 +7758,7 @@ body,
   border-radius: 11px !important;
 }
 
-/* A home de Configurações usa melhor monitores largos sem esticar texto. */
+/* A home de ConfiguraÃ§Ãµes usa melhor monitores largos sem esticar texto. */
 .tcloud-simple-home {
   width: 100% !important;
   max-width: 1180px !important;
@@ -7949,7 +7894,7 @@ body,
 
 
 /* ============================================================
-   TCloud 13.0.2 — Lightweight UI & Polish
+   TCloud 13.0.2 â€” Lightweight UI & Polish
    Menos camadas, menos GPU, menos contraste pesado. A interface
    continua rica, mas usa superficies planas e movimentos curtos.
    ============================================================ */
@@ -7961,7 +7906,7 @@ body,
   --motion-slow: 160ms;
 }
 
-/* Shell sem gradiente decorativo e sem a sensação de "cartão dentro da janela". */
+/* Shell sem gradiente decorativo e sem a sensaÃ§Ã£o de "cartÃ£o dentro da janela". */
 .tcloud-desktop-shell {
   background: var(--color-app-canvas) !important;
 }
@@ -7973,7 +7918,7 @@ body,
   box-shadow: none !important;
 }
 
-/* Transparência/blur custa GPU e torna o visual mais pesado. */
+/* TransparÃªncia/blur custa GPU e torna o visual mais pesado. */
 .tcloud-topbar,
 .tcloud-explorer-header,
 .tcloud-explorer-command-row,
@@ -8080,42 +8025,9 @@ body,
   filter: none !important;
 }
 
-/* Arquivos: sem elevação/zoom no hover, só mudança sutil de superfície. */
-.tcloud-file-card,
-.tcloud-quick-card,
-.tcloud-forum-overview-folder,
-.tcloud-gallery-tile,
-.tcloud-recent-item,
-.tcloud-favorite-item {
-  box-shadow: none !important;
-}
-.tcloud-file-card:hover,
-.tcloud-file-card:active,
-.tcloud-quick-card:hover,
-.tcloud-forum-overview-folder:hover {
-  transform: none !important;
-  box-shadow: none !important;
-}
-.tcloud-gallery-tile img,
-.tcloud-gallery-tile:hover img {
-  transform: none !important;
-  transition: opacity var(--motion-fast) ease !important;
-}
-.tcloud-file-card {
-  border-radius: 8px !important;
-  background: var(--color-app-surface) !important;
-}
-.tcloud-file-card:hover {
-  border-color: var(--color-app-border) !important;
-  background: var(--color-app-hover) !important;
-}
-.tcloud-file-card.is-selected {
-  border-color: color-mix(in srgb, var(--color-app-accent) 42%, var(--color-app-border)) !important;
-  background: var(--color-app-selected) !important;
-}
 .tcloud-file-row:hover { background: var(--color-app-hover) !important; }
 
-/* Coleções/áreas especiais ficam mais próximas de uma pasta normal. */
+/* ColeÃ§Ãµes/Ã¡reas especiais ficam mais prÃ³ximas de uma pasta normal. */
 .tcloud-workspace-view { padding: 14px 16px 22px !important; }
 .tcloud-workspace-heading,
 .tcloud-collection-heading,
@@ -8135,7 +8047,7 @@ body,
   box-shadow: none !important;
 }
 
-/* Configurações: menos "cartões grandes", mais lista de preferências. */
+/* ConfiguraÃ§Ãµes: menos "cartÃµes grandes", mais lista de preferÃªncias. */
 .tcloud-settings-header {
   min-height: 62px !important;
   padding: 10px 16px !important;
@@ -8170,12 +8082,12 @@ body,
 .tcloud-settings-footer-secondary,
 .tcloud-settings-footer-primary { min-height: 32px !important; }
 
-/* Menos animações contínuas. Progresso real e spinner continuam visíveis. */
+/* Menos animaÃ§Ãµes contÃ­nuas. Progresso real e spinner continuam visÃ­veis. */
 .tcloud-activity-dot.is-working { animation-duration: 2.2s !important; }
 .desktop-shell .animate-pulse { animation-duration: 2.4s !important; }
 .tcloud-explorer-tree-children { transition-duration: 90ms !important; }
 
-/* Respeita explicitamente a preferência de movimento reduzido. */
+/* Respeita explicitamente a preferÃªncia de movimento reduzido. */
 @media (prefers-reduced-motion: reduce) {
   .desktop-shell *,
   .desktop-shell *::before,
@@ -8193,12 +8105,12 @@ body,
 }
 
 /* ============================================================
-   TCloud 13.0.3 — Explorer Minimal UI
+   TCloud 13.0.3 â€” Explorer Minimal UI
    Remove duplicacoes visuais, aproxima Inicio/Configuracoes do
    Explorer e reduz a area desperdicada por cards sem miniatura.
    ============================================================ */
 
-/* Início: menos dashboard, mais navegação. */
+/* InÃ­cio: menos dashboard, mais navegaÃ§Ã£o. */
 .tcloud-drive-home {
   padding: 12px 18px 18px !important;
 }
@@ -8289,7 +8201,7 @@ body,
   min-height: 190px !important;
   padding-top: 5px !important;
 }
-/* A tela Início usa view small; sem thumbnail o item deixa de parecer um card de galeria vazio. */
+/* A tela InÃ­cio usa view small; sem thumbnail o item deixa de parecer um card de galeria vazio. */
 .tcloud-all-files-section .tcloud-file-card-small {
   border-color: transparent !important;
   background: transparent !important;
@@ -8302,7 +8214,7 @@ body,
   background: transparent !important;
 }
 
-/* Status inferior: ferramenta, não alerta duplicado. */
+/* Status inferior: ferramenta, nÃ£o alerta duplicado. */
 .tcloud-explorer-statusbar {
   min-height: 25px !important;
   padding-inline: 9px 5px !important;
@@ -8318,7 +8230,7 @@ body,
 .tcloud-explorer-status-view input { width: 72px !important; }
 .tcloud-explorer-view-label { display: none !important; }
 
-/* Configurações Gerais: uma página de preferências, não um segundo dashboard. */
+/* ConfiguraÃ§Ãµes Gerais: uma pÃ¡gina de preferÃªncias, nÃ£o um segundo dashboard. */
 .tcloud-simple-home {
   max-width: 1080px !important;
   gap: 9px !important;
@@ -8425,7 +8337,7 @@ body,
 .tcloud-simple-section-heading h3 { font-size: 10.5px !important; }
 .tcloud-simple-section-heading p { font-size: 8.5px !important; }
 
-/* Menos cor de erro permanente: vermelho fica reservado a texto/ícone de ação. */
+/* Menos cor de erro permanente: vermelho fica reservado a texto/Ã­cone de aÃ§Ã£o. */
 .tcloud-settings-content .is-danger,
 .tcloud-drive-home .is-danger {
   box-shadow: none !important;
@@ -8441,7 +8353,7 @@ body,
 
 
 /* ============================================================
-   TCloud 13.0.4 — File Grid & Attention Cleanup
+   TCloud 13.0.4 â€” File Grid & Attention Cleanup
    ============================================================ */
 .tcloud-home-health {
   min-height: 44px !important;
@@ -8497,3 +8409,485 @@ body,
 .tcloud-problems-overview-actions { flex-wrap: wrap; }
 .tcloud-explorer-status-center { opacity: .58 !important; }
 @media (max-width: 900px) { .tcloud-home-file-grid { grid-template-columns: 1fr; } }
+
+/* TCLOUD 13.0.15 - INTERFACE 2.1 FINAL POLISH
+   Acabamento visual da interface estilo Explorer.
+   Somente apresentaÃ§Ã£o: nenhuma regra de sincronizaÃ§Ã£o Ã© alterada.
+   ============================================================ */
+
+/* Sidebar: um pouco mais estreita e densa. */
+.tcloud-explorer-sidebar:not(.is-collapsed) {
+    width: 216px !important;
+}
+
+.tcloud-explorer-brand {
+    height: 46px !important;
+    padding-inline: 9px 7px !important;
+    gap: 7px !important;
+}
+
+.tcloud-explorer-brand img {
+    width: 24px !important;
+    height: 24px !important;
+}
+
+.tcloud-explorer-brand strong {
+    font-size: 12.5px !important;
+}
+
+.tcloud-explorer-brand span {
+    font-size: 7.5px !important;
+}
+
+.tcloud-explorer-sidebar-scroll {
+    padding: 5px 5px 8px !important;
+}
+
+.tcloud-explorer-section {
+    margin-top: 8px !important;
+}
+
+.tcloud-explorer-section-title {
+    height: 20px !important;
+    padding-inline: 7px !important;
+}
+
+.tcloud-explorer-nav-item,
+.tcloud-explorer-folder-row,
+.tcloud-explorer-empty-row,
+.tcloud-explorer-footer-row,
+.tcloud-explorer-tree-main {
+    min-height: 28px !important;
+    height: 28px !important;
+    border-radius: 5px !important;
+    font-size: 11.5px !important;
+}
+
+.tcloud-explorer-nav-item svg,
+.tcloud-explorer-folder-row svg,
+.tcloud-explorer-tree-main svg {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+.tcloud-explorer-nav-item.is-active::before,
+.tcloud-explorer-folder-row.is-active::before {
+    top: 6px !important;
+    bottom: 6px !important;
+}
+
+.tcloud-explorer-sidebar-footer {
+    padding: 4px 5px !important;
+}
+
+.tcloud-explorer-footer-status {
+    height: 26px !important;
+    font-size: 9px !important;
+}
+
+
+/* Barra superior: ocupa menos altura vertical. */
+.tcloud-explorer-location-row {
+    min-height: 42px !important;
+    padding: 4px 9px !important;
+}
+
+.tcloud-explorer-command-row {
+    min-height: 34px !important;
+    padding: 2px 8px 3px !important;
+}
+
+.tcloud-explorer-breadcrumb,
+.tcloud-explorer-search {
+    min-height: 29px !important;
+    height: 29px !important;
+}
+
+.tcloud-explorer-history-buttons button {
+    width: 27px !important;
+    height: 27px !important;
+}
+
+.tcloud-explorer-command {
+    min-height: 27px !important;
+    border-radius: 5px !important;
+    padding-inline: 7px !important;
+    font-size: 10px !important;
+}
+
+.tcloud-explorer-command.is-compact {
+    width: 27px !important;
+    min-width: 27px !important;
+    padding-inline: 0 !important;
+}
+
+
+/* InÃ­cio: mais prÃ³ximo de uma Ã¡rea de arquivos do que de um dashboard. */
+.tcloud-drive-home {
+    padding: 10px 16px 16px !important;
+}
+
+.tcloud-home-compact-header {
+    min-height: 36px !important;
+    margin-bottom: 5px !important;
+    padding-bottom: 5px !important;
+}
+
+.tcloud-home-compact-header h2 {
+    font-size: 16px !important;
+}
+
+.tcloud-home-compact-header p {
+    font-size: 9px !important;
+}
+
+
+/* Alerta: continua visÃ­vel, mas deixa de dominar a pÃ¡gina. */
+.tcloud-home-health {
+    min-height: 38px !important;
+    margin-bottom: 6px !important;
+    gap: 6px !important;
+    border-radius: 5px !important;
+    padding: 5px 8px !important;
+    background: transparent !important;
+}
+
+.tcloud-home-health.is-danger {
+    border-top-color: var(--color-app-border-subtle) !important;
+    border-right-color: var(--color-app-border-subtle) !important;
+    border-bottom-color: var(--color-app-border-subtle) !important;
+}
+
+.tcloud-home-health-icon {
+    width: 24px !important;
+    height: 24px !important;
+}
+
+.tcloud-home-health-copy > strong {
+    font-size: 10px !important;
+}
+
+.tcloud-home-health-copy > span {
+    font-size: 7.5px !important;
+    opacity: .8;
+}
+
+.tcloud-home-health-actions button {
+    min-height: 24px !important;
+    padding: 2px 8px !important;
+    font-size: 8.5px !important;
+}
+
+
+/* Atalhos principais: planos e discretos. */
+.tcloud-home-locations {
+    gap: 4px !important;
+    margin-bottom: 8px !important;
+}
+
+.tcloud-home-locations > button {
+    min-height: 42px !important;
+    gap: 6px !important;
+    border-color: transparent !important;
+    border-radius: 5px !important;
+    padding: 5px 8px !important;
+    background: transparent !important;
+}
+
+.tcloud-home-locations > button:hover {
+    border-color: transparent !important;
+    background: var(--color-app-hover) !important;
+}
+
+.tcloud-home-locations strong {
+    font-size: 9.5px !important;
+}
+
+.tcloud-home-locations small {
+    font-size: 7.5px !important;
+}
+
+
+/* Recentes: menos aparÃªncia de cards. */
+.tcloud-quick-access {
+    margin-top: 7px !important;
+    margin-bottom: 7px !important;
+}
+
+.tcloud-quick-grid {
+    gap: 4px !important;
+}
+
+.tcloud-quick-card {
+    min-height: 39px !important;
+    gap: 6px !important;
+    border-color: transparent !important;
+    border-radius: 5px !important;
+    padding: 5px 7px !important;
+    background: transparent !important;
+}
+
+.tcloud-quick-card:hover {
+    border-color: transparent !important;
+    background: var(--color-app-hover) !important;
+}
+
+.tcloud-quick-card-icon {
+    width: 26px !important;
+    height: 26px !important;
+    border-radius: 5px !important;
+}
+
+.tcloud-quick-card strong {
+    font-size: 9px !important;
+}
+
+.tcloud-quick-card span {
+    font-size: 7.5px !important;
+}
+
+
+/* CabeÃ§alhos de seÃ§Ã£o mais leves. */
+.tcloud-section-heading {
+    margin-bottom: 4px !important;
+}
+
+.tcloud-section-heading h3 {
+    font-size: 10px !important;
+}
+
+.tcloud-section-heading-files {
+    margin-top: 3px !important;
+    margin-bottom: 4px !important;
+}
+
+
+/* Meus arquivos: linha compacta, sem "caixa dentro de caixa". */
+.tcloud-home-file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+    gap: 3px !important;
+    padding-bottom: 6px !important;
+}
+
+.tcloud-home-file-tile {
+    min-height: 42px !important;
+    grid-template-columns: 28px minmax(0,1fr) 16px !important;
+    gap: 6px !important;
+    border-color: transparent !important;
+    border-radius: 5px !important;
+    padding: 4px 6px !important;
+    background: transparent !important;
+}
+
+.tcloud-home-file-tile:hover {
+    border-color: transparent !important;
+    background: var(--color-app-hover) !important;
+}
+
+.tcloud-home-file-icon {
+    width: 26px !important;
+    height: 26px !important;
+    border-radius: 5px !important;
+}
+
+.tcloud-home-file-copy strong {
+    font-size: 9px !important;
+}
+
+.tcloud-home-file-copy small {
+    margin-top: 1px !important;
+    font-size: 7.5px !important;
+}
+
+
+/* MantÃ©m os indicadores Ãºteis, porÃ©m mais discretos. */
+.tcloud-explorer-nav-badge {
+    min-width: 16px !important;
+    height: 16px !important;
+    padding-inline: 4px !important;
+    font-size: 8px !important;
+}
+
+.tcloud-explorer-nav-badge.is-danger {
+    box-shadow: none !important;
+}
+
+
+/* Melhor aproveitamento em monitores largos. */
+@media (min-width: 1500px) {
+    .tcloud-drive-home {
+        padding-inline: 18px !important;
+    }
+
+    .tcloud-home-file-grid {
+        grid-template-columns: repeat(6, minmax(0,1fr)) !important;
+    }
+}
+
+@media (max-width: 1100px) {
+    .tcloud-explorer-sidebar:not(.is-collapsed) {
+        width: 202px !important;
+    }
+
+    .tcloud-home-file-grid {
+        grid-template-columns: repeat(3, minmax(0,1fr)) !important;
+    }
+}
+
+/* ============================================================
+   TCLOUD 13.0.15 - INTERFACE 2.2 READABILITY
+   Recupera legibilidade sem voltar ao visual pesado de cards.
+   ============================================================ */
+
+/* CabeÃ§alho da tela InÃ­cio um pouco mais legÃ­vel. */
+.tcloud-home-compact-header {
+    min-height: 40px !important;
+}
+
+.tcloud-home-compact-header h2 {
+    font-size: 17px !important;
+    line-height: 1.25 !important;
+}
+
+.tcloud-home-compact-header p {
+    font-size: 9.5px !important;
+}
+
+
+/* Alerta continua discreto, mas texto fica mais confortÃ¡vel. */
+.tcloud-home-health {
+    min-height: 40px !important;
+}
+
+.tcloud-home-health-copy > strong {
+    font-size: 10.5px !important;
+}
+
+.tcloud-home-health-copy > span {
+    font-size: 8px !important;
+}
+
+
+/* Atalhos superiores: legibilidade sem voltar a parecer dashboard. */
+.tcloud-home-locations > button {
+    min-height: 45px !important;
+}
+
+.tcloud-home-locations strong {
+    font-size: 10px !important;
+}
+
+.tcloud-home-locations small {
+    font-size: 8px !important;
+}
+
+
+/* Recentes: mais espaÃ§o para nomes. */
+.tcloud-quick-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+}
+
+.tcloud-quick-card {
+    min-height: 44px !important;
+    grid-template-columns: 30px minmax(0,1fr) !important;
+    gap: 7px !important;
+    padding: 5px 8px !important;
+}
+
+.tcloud-quick-card-icon {
+    width: 29px !important;
+    height: 29px !important;
+}
+
+.tcloud-quick-card strong {
+    font-size: 9.5px !important;
+    line-height: 1.2 !important;
+}
+
+.tcloud-quick-card span {
+    font-size: 8px !important;
+}
+
+
+/* Meus arquivos: aumenta levemente os itens e reduz truncamento visual. */
+.tcloud-home-file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)) !important;
+    gap: 5px !important;
+}
+
+.tcloud-home-file-tile {
+    min-height: 46px !important;
+    grid-template-columns: 30px minmax(0,1fr) 17px !important;
+    gap: 7px !important;
+    padding: 5px 7px !important;
+}
+
+.tcloud-home-file-icon {
+    width: 29px !important;
+    height: 29px !important;
+}
+
+.tcloud-home-file-copy strong {
+    font-size: 9.5px !important;
+    line-height: 1.2 !important;
+}
+
+.tcloud-home-file-copy small {
+    font-size: 8px !important;
+}
+
+
+/* TÃ­tulos de seÃ§Ã£o voltam a ter um pouco mais de hierarquia. */
+.tcloud-section-heading {
+    margin-bottom: 5px !important;
+}
+
+.tcloud-section-heading h3 {
+    font-size: 10.5px !important;
+}
+
+
+/* Mais espaÃ§o Ãºtil vertical para arquivos. */
+.tcloud-all-files-section {
+    min-height: 220px !important;
+}
+
+.tcloud-all-files-section .tcloud-explorer {
+    min-height: 220px !important;
+}
+
+
+/* Em telas largas, evita itens estreitos demais. */
+@media (min-width: 1500px) {
+    .tcloud-home-file-grid {
+        grid-template-columns: repeat(6, minmax(205px, 1fr)) !important;
+    }
+
+    .tcloud-quick-grid {
+        grid-template-columns: repeat(4, minmax(230px, 1fr)) !important;
+    }
+}
+
+@media (max-width: 1200px) {
+    .tcloud-quick-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .tcloud-home-file-grid {
+        grid-template-columns: repeat(3, minmax(0,1fr)) !important;
+    }
+}
+
+/* TCLOUD 13.0.16 - DUPLICATE REVIEW */
+.tcloud-duplicate-group{gap:.55rem}
+.tcloud-duplicate-group-head{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem}
+.tcloud-duplicate-group-head>div{display:flex;min-width:0;flex-direction:column;gap:.16rem}
+.tcloud-duplicate-files{display:flex;flex-direction:column;gap:.32rem}
+.tcloud-duplicate-file{display:flex;align-items:flex-start;gap:.55rem;border:1px solid var(--color-app-border-subtle);border-radius:.58rem;padding:.5rem .58rem;background:var(--color-app-surface);cursor:pointer}
+.tcloud-duplicate-file:hover,.tcloud-duplicate-file.is-selected{background:var(--color-app-hover)}
+.tcloud-duplicate-file input{margin-top:.12rem;flex:0 0 auto}
+.tcloud-duplicate-file>span{display:flex;min-width:0;flex:1;flex-direction:column;gap:.12rem}
+.tcloud-duplicate-file strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.66rem;color:var(--color-app-text)}
+.tcloud-duplicate-file small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.52rem;color:var(--color-app-text-secondary)}
+

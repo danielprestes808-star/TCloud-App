@@ -270,23 +270,38 @@ export function useTelegramConnection(onLogoutParent: () => void) {
     // Keep the ref in sync
     handleSyncFoldersRef.current = handleSyncFolders;
 
-    // TCloud 7.3.3 compatibility migration:
-    // perform one silent Telegram scan so groups created by older versions
-    // ("TCloud - Documentos", "TCloud - Fotos", ...) are imported into the
-    // desktop folder index automatically.
+    // TCloud 7.3.3 compatibility migration.
+    //
+    // Modern installations already have a persisted folder catalog and should
+    // never perform a full Telegram folder scan during startup.
+    //
+    // Only an installation with no known folders still needs the legacy scan,
+    // and even then it runs well after the UI/current folder have settled.
     useEffect(() => {
         if (!isConnected || !store) return;
+
         const migrationKey = 'tcloud:legacy-folder-index-v733';
+
         if (localStorage.getItem(migrationKey) === 'done') return;
+
+        if (folders.length > 0) {
+            localStorage.setItem(migrationKey, 'done');
+            return;
+        }
 
         const timer = window.setTimeout(() => {
             void handleSyncFoldersRef.current?.(true)
                 .then(() => localStorage.setItem(migrationKey, 'done'))
-                .catch((error) => console.warn('Legacy TCloud folder import failed:', error));
-        }, 900);
+                .catch((error) =>
+                    console.warn(
+                        'Legacy TCloud folder import failed:',
+                        error
+                    )
+                );
+        }, 15_000);
 
         return () => window.clearTimeout(timer);
-    }, [isConnected, store]);
+    }, [isConnected, store, folders.length]);
 
 
     const handleCreateFolder = async (name: string) => {
@@ -298,9 +313,9 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             await store.set('folders', updated);
             await store.save();
             window.dispatchEvent(new Event('tcloud-forums-changed'));
-            toast.success(`Folder "${name}" created.`);
+            toast.success(`Pasta "${name}" criada.`);
         } catch (e) {
-            toast.error("Failed to create folder: " + e);
+            toast.error("N?o foi poss?vel criar a pasta: " + String(e));
             throw e;
         }
     };
@@ -342,27 +357,78 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                     if (activeFolderId === folderId) setActiveFolderId(null);
                 }
             } else {
-                toast.error(`Failed to delete folder: ${e}`);
+                toast.error(`N?o foi poss?vel excluir a pasta: ${String(e)}`);
             }
         }
     };
 
-    const handleFolderRename = async (folderId: number, oldName: string, newNameOverride?: string) => {
-        const newName = newNameOverride?.trim();
-        if (!newName || newName === oldName) return;
+    const handleFolderRename = async (
+        folderId: number,
+        oldNameOrNewName: string,
+        newNameOverride?: string
+    ) => {
+        // 14.28:
+        // Alguns componentes chamam (id, novoNome) e outros ainda usam
+        // (id, nomeAntigo, novoNome). Aceitamos os dois formatos.
+        const currentName =
+            newNameOverride !== undefined
+                ? oldNameOrNewName
+                : (folders.find(f => f.id === folderId)?.name ?? '');
+
+        const requestedName =
+            (newNameOverride ?? oldNameOrNewName).trim();
+
+        // Regra do Windows: ponto/espa?o n?o podem ficar no final.
+        const newName = requestedName.replace(/[. ]+$/g, '');
+
+        if (!newName) {
+            toast.error('Digite um nome v\u00e1lido.');
+            return;
+        }
+
+        if (currentName && newName === currentName) {
+            if (requestedName !== currentName) {
+                toast.info(
+                    'Ponto ou espa\u00e7o no final do nome foi removido.'
+                );
+            }
+            return;
+        }
 
         try {
-            await invoke('cmd_rename_folder', { folderId, newName });
-            const updated = folders.map(f => f.id === folderId ? { ...f, name: newName } : f);
+            const renamed = await invoke<boolean>(
+                'cmd_rename_folder',
+                { folderId, newName }
+            );
+
+            if (!renamed) {
+                throw new Error(
+                    'A altera\u00e7\u00e3o n\u00e3o foi confirmada.'
+                );
+            }
+
+            const updated = folders.map(f =>
+                f.id === folderId
+                    ? { ...f, name: newName }
+                    : f
+            );
+
             setFolders(updated);
+
             if (store) {
                 await store.set('folders', updated);
                 await store.save();
             }
-            window.dispatchEvent(new Event('tcloud-forums-changed'));
-            toast.success(`Folder renamed to "${newName}".`);
+
+            window.dispatchEvent(
+                new Event('tcloud-forums-changed')
+            );
+
+            toast.success(`Renomeado para "${newName}".`);
         } catch (e) {
-            toast.error("Failed to rename folder: " + e);
+            toast.error(
+                'N\u00e3o foi poss\u00edvel renomear: ' + String(e)
+            );
         }
     };
 
@@ -393,7 +459,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             toast.success(makePublic ? 'Channel is now public' : 'Channel is now private');
             return updated;
         } catch (e) {
-            toast.error(`Failed to toggle visibility: ${e}`);
+            toast.error(`N?o foi poss?vel alterar a visibilidade: ${String(e)}`);
             throw e;
         }
     };
@@ -405,7 +471,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             });
             return info;
         } catch (e) {
-            toast.error(`Failed to get invite link: ${e}`);
+            toast.error(`N?o foi poss?vel obter o link: ${String(e)}`);
             throw e;
         }
     };
@@ -424,9 +490,9 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             const id = await invoke<number>('cmd_create_group', { name, colorHex });
             const newGroup: FolderGroup = { id, name, color_hex: colorHex, display_order: groups.length };
             setGroups(prev => [...prev, newGroup]);
-            toast.success(`Group "${name}" created.`);
+            toast.success(`Grupo "${name}" criado.`);
         } catch (e) {
-            toast.error("Failed to create group: " + e);
+            toast.error("N?o foi poss?vel criar o grupo: " + String(e));
         }
     };
 
@@ -435,9 +501,9 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             await invoke('cmd_delete_group', { groupId });
             setGroups(prev => prev.filter(g => g.id !== groupId));
             setFolders(prev => prev.map(f => f.group_id === groupId ? { ...f, group_id: null } : f));
-            toast.success("Group deleted.");
+            toast.success("Grupo exclu?do.");
         } catch (e) {
-            toast.error("Failed to delete group: " + e);
+            toast.error("N?o foi poss?vel excluir o grupo: " + String(e));
         }
     };
 
@@ -447,7 +513,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             setGroups(prev => prev.map(g => g.id === groupId ? { ...g, name, color_hex: colorHex } : g));
             toast.success("Group updated.");
         } catch (e) {
-            toast.error("Failed to update group: " + e);
+            toast.error("N?o foi poss?vel atualizar o grupo: " + String(e));
         }
     };
 
@@ -456,7 +522,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             await invoke('cmd_assign_folder_to_group', { channelId: folderId, groupId });
             setFolders(prev => prev.map(f => f.id === folderId ? { ...f, group_id: groupId } : f));
         } catch (e) {
-            toast.error("Failed to assign folder to group: " + e);
+            toast.error("N?o foi poss?vel mover a pasta para o grupo: " + String(e));
         }
     };
 

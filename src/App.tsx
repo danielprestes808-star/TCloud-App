@@ -6,6 +6,7 @@ import { BrandSplash } from "./components/shared/BrandSplash";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import "./App.css";
+import "./styles/tcloud-explorer.css";
 
 const DesktopDashboard = React.lazy(() => import("./components/desktop/DesktopDashboard").then(m => ({ default: m.Dashboard })));
 const AuthWizard = React.lazy(() => import("./components/shared/AuthWizard").then(m => ({ default: m.AuthWizard })));
@@ -129,22 +130,65 @@ function AppContent() {
     }
   }, [settings.performanceMode, isLoaded]);
 
-  // Restore the Telegram session automatically. The session file is persisted
-  // by the Rust Telegram client and is deleted only by cmd_logout.
-  // This means reopening TCloud does not ask for the phone number again.
+  // Fast startup:
+  // decide the initial screen from the persisted local Telegram session.
+  // Network initialization and validation continue in background.
   useEffect(() => {
-    const checkSession = async () => {
+    let cancelled = false;
+
+    const restoreSession = async () => {
       try {
-        await invoke("cmd_connect_simple");
-        const ok = await invoke<boolean>("cmd_check_connection");
-        setAuthStatus(ok ? "authenticated" : "unauthenticated");
+        const hasSavedSession =
+          await invoke<boolean>("cmd_has_saved_session");
+
+        if (cancelled) return;
+
+        if (!hasSavedSession) {
+          setAuthStatus("unauthenticated");
+          return;
+        }
+
+        // Show dashboard immediately; Telegram reconnects in background.
+        setAuthStatus("authenticated");
+
+        void (async () => {
+          try {
+            await invoke("cmd_connect_simple");
+
+            const ok =
+              await invoke<boolean>("cmd_check_connection");
+
+            if (!ok) {
+              console.warn(
+                "[TCloud] Telegram session temporarily unavailable."
+              );
+            }
+          } catch (err) {
+            console.warn(
+              "[TCloud] Background Telegram restore failed:",
+              err
+            );
+          }
+        })();
+
       } catch (err) {
-        console.warn("No reusable Telegram session found:", err);
-        setAuthStatus("unauthenticated");
+
+        console.warn(
+          "[TCloud] Could not inspect saved session:",
+          err
+        );
+
+        if (!cancelled) {
+          setAuthStatus("unauthenticated");
+        }
       }
     };
 
-    void checkSession();
+    void restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Donation/support UI and legacy post-click thank-you flow removed from TCloud.
@@ -177,7 +221,13 @@ function AppContent() {
         onUpdate={downloadAndInstall}
         onDismiss={dismissUpdate}
       />
-      <Toaster theme={theme} position="bottom-center" />
+      <Toaster
+        theme={theme}
+        position="bottom-right"
+        visibleToasts={2}
+        expand={false}
+        toastOptions={{ duration: 2000 }}
+      />
 
       {authStatus === "authenticated" && (
         <Suspense

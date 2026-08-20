@@ -15,7 +15,7 @@ type QueueTask = {
 
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const PREVIEW_CACHE_MAX_ITEMS = 24;
-const THUMBNAIL_CACHE_MAX_ITEMS = 512;
+const THUMBNAIL_CACHE_MAX_ITEMS = 2048;
 let thumbnailConcurrency = Number(localStorage.getItem('tcloud:thumbnail-concurrency') || '4');
 const PREVIEW_CONCURRENCY = 2;
 

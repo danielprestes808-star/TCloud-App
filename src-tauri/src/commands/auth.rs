@@ -186,6 +186,27 @@ pub async fn ensure_client_initialized(
 }
 
 #[tauri::command]
+pub fn cmd_has_saved_session(
+    app_handle: tauri::AppHandle,
+) -> Result<bool, String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+
+    let session_path = app_data_dir.join("telegram.session");
+
+    if !session_path.exists() {
+        return Ok(false);
+    }
+
+    let metadata = std::fs::metadata(&session_path)
+        .map_err(|e| e.to_string())?;
+
+    Ok(metadata.len() > 0)
+}
+
+#[tauri::command]
 pub async fn cmd_connect_simple(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,

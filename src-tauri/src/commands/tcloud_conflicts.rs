@@ -19,7 +19,7 @@ pub struct TCloudConflict {
 }
 
 fn ensure_schema(conn:&sqlite::Connection)->Result<(),String>{
-    conn.execute("CREATE TABLE IF NOT EXISTS tcloud_sync_preferences (id INTEGER PRIMARY KEY CHECK(id=1), version_retention INTEGER NOT NULL DEFAULT 10, trash_retention_days INTEGER NOT NULL DEFAULT 30, conflict_strategy TEXT NOT NULL DEFAULT 'keep_both', updated_at INTEGER NOT NULL DEFAULT 0); INSERT OR IGNORE INTO tcloud_sync_preferences(id,version_retention,trash_retention_days,conflict_strategy,updated_at) VALUES(1,10,30,'keep_both',0);").map_err(|e|e.to_string())?;
+    conn.execute("CREATE TABLE IF NOT EXISTS tcloud_sync_preferences (id INTEGER PRIMARY KEY CHECK(id=1), version_retention INTEGER NOT NULL DEFAULT 10, trash_retention_days INTEGER NOT NULL DEFAULT 30, conflict_strategy TEXT NOT NULL DEFAULT 'ask', updated_at INTEGER NOT NULL DEFAULT 0); INSERT OR IGNORE INTO tcloud_sync_preferences(id,version_retention,trash_retention_days,conflict_strategy,updated_at) VALUES(1,10,30,'ask',0);").map_err(|e|e.to_string())?;
     let _=conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN remote_message_id INTEGER");
     let _=conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN file_name TEXT");
     let _=conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN local_path TEXT");
@@ -206,35 +206,6 @@ fn resolve_conflict_internal(app:&AppHandle,db:&DbConnection,conflict_id:i64,res
         log::info!("TCloud conflito {}: versão do computador preservada como {}.",conflict_id,path);
     }
     Ok(())
-}
-
-pub(crate) fn auto_resolve_keep_both(app:&AppHandle,db:&DbConnection)->Result<usize,String>{
-    let ids={
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-        ensure_schema(&conn)?;
-        let strategy={
-            let mut q=conn.prepare("SELECT conflict_strategy FROM tcloud_sync_preferences WHERE id=1").map_err(|e|e.to_string())?;
-            if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){
-                q.read::<String,_>(0).unwrap_or_else(|_|"keep_both".into())
-            }else{"keep_both".into()}
-        };
-        if strategy!="keep_both"{return Ok(0);}
-        let mut q=conn.prepare("SELECT id FROM tcloud_sync_conflicts WHERE resolution='pending' ORDER BY created_at ASC LIMIT 16").map_err(|e|e.to_string())?;
-        let mut ids=Vec::new();
-        while let sqlite::State::Row=q.next().map_err(|e|e.to_string())?{
-            ids.push(q.read::<i64,_>(0).unwrap_or(0));
-        }
-        ids
-    };
-
-    let mut resolved=0usize;
-    for id in ids{
-        match resolve_conflict_internal(app,db,id,"keep_both"){
-            Ok(())=>resolved+=1,
-            Err(error)=>log::warn!("TCloud conflito {}: Guardar as duas automático será tentado novamente: {}",id,error),
-        }
-    }
-    Ok(resolved)
 }
 
 #[tauri::command]

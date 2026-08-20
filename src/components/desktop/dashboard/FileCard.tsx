@@ -2,7 +2,13 @@ import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import { Folder, Eye, Trash2, Link, Check } from 'lucide-react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { TelegramFile } from '../../../types';
-import { forgetThumbnail, getCachedThumbnail, loadThumbnail } from '../../../services/imagePreviewCache';
+import {
+    forgetThumbnail,
+    getCachedThumbnail,
+    loadThumbnail,
+    getCachedPreview,
+    loadPreview,
+} from '../../../services/imagePreviewCache';
 import { FileTypeIcon } from '../../shared/FileTypeIcon';
 import { useVideoMetadata } from '../../../hooks/useVideoMetadata';
 import { useCachedVariants } from '../../../hooks/useCachedVariants';
@@ -34,6 +40,20 @@ function isImageFile(filename: string): boolean {
     return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'avif'].includes(ext);
 }
 
+function isVideoFile(filename: string): boolean {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return ['mp4', 'webm', 'mov', 'm4v', 'mkv'].includes(ext);
+}
+
+/*
+ * Somente um hover-preview pesado por vez.
+ * Isso evita 5 ou 10 vÃ­deos comeÃ§arem a carregar quando o usuÃ¡rio
+ * simplesmente atravessa a grade com o mouse.
+ */
+let activeHoverPreviewOwner: number | null = null;
+
+
+
 
 export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onPreview, onShare, isSelected, onClick, onContextMenu, onOpen, activeFolderId, height, onToggleSelection, selectedIds, variant = 'standard' }: FileCardProps) {
     const isFolder = file.type === 'folder';
@@ -42,7 +62,20 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
     const [thumbnailReady, setThumbnailReady] = useState(false);
     const cardElementRef = useRef<HTMLDivElement | null>(null);
     const [thumbnailVisible, setThumbnailVisible] = useState(false);
+
+    // TCloud hover preview
+    const [hoverPreviewActive, setHoverPreviewActive] = useState(false);
+    const [hoverPreviewSrc, setHoverPreviewSrc] = useState<string | null>(null);
+    const [hoverPreviewLoading, setHoverPreviewLoading] = useState(false);
+    const hoverTimerRef = useRef<number | null>(null);
+    const hoverRequestRef = useRef(0);
+    const hoverVideoRef = useRef<HTMLVideoElement | null>(null);
+
     const effectiveFolderId = file.folder_id ?? activeFolderId ?? null;
+    const canHoverPreview = !isFolder && (
+        isImageFile(file.name) ||
+        isVideoFile(file.name)
+    );
     const fileIds = selectedIds?.includes(file.id) ? selectedIds : [file.id];
     const {
         attributes,
@@ -107,7 +140,7 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
                     observer.disconnect();
                 }
             },
-            { rootMargin: '220px 0px' },
+            { rootMargin: '1200px 0px' },
         );
         observer.observe(element);
         return () => observer.disconnect();
@@ -150,6 +183,127 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
         };
     }, [file.id, file.name, effectiveFolderId, isFolder, thumbnailVisible]);
 
+    const stopHoverPreview = useCallback(() => {
+        if (hoverTimerRef.current !== null) {
+            window.clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+        }
+
+        hoverRequestRef.current += 1;
+
+        const video = hoverVideoRef.current;
+        if (video) {
+            try {
+                video.pause();
+                video.currentTime = 0;
+            } catch {
+                // best effort
+            }
+        }
+
+        if (activeHoverPreviewOwner === file.id) {
+            activeHoverPreviewOwner = null;
+        }
+
+        setHoverPreviewActive(false);
+        setHoverPreviewLoading(false);
+    }, [file.id]);
+
+    const startHoverPreview = useCallback(() => {
+        if (!canHoverPreview) return;
+
+        // Não iniciar prévia pesada enquanto a grade está rolando
+        // ou quando a janela não está visível.
+        if (document.visibilityState !== 'visible') return;
+
+        const explorer = cardElementRef.current?.closest('.tcloud-explorer');
+        if (explorer?.classList.contains('is-scrolling')) return;
+
+        if (hoverTimerRef.current !== null) {
+            window.clearTimeout(hoverTimerRef.current);
+        }
+
+        // NÃ£o faÃ§a nenhum download pesado durante uma passagem rÃ¡pida do mouse.
+        hoverTimerRef.current = window.setTimeout(() => {
+            hoverTimerRef.current = null;
+
+            // Apenas um card pode possuir o preview ativo.
+            activeHoverPreviewOwner = file.id;
+
+            const requestId = ++hoverRequestRef.current;
+            setHoverPreviewActive(true);
+
+            const cached = getCachedPreview(file.id, effectiveFolderId);
+
+            if (cached) {
+                setHoverPreviewSrc(cached);
+                setHoverPreviewLoading(false);
+                return;
+            }
+
+            /*
+             * Imagens podem buscar a prÃ©via completa.
+             *
+             * Para vÃ­deo cloud-only, evitamos baixar centenas de MB sÃ³ porque
+             * o usuÃ¡rio pousou o mouse. VÃ­deos jÃ¡ locais/cached podem tocar
+             * imediatamente. O player completo continua responsÃ¡vel pelo
+             * streaming de vÃ­deos remotos.
+             */
+            const localState = String(file.local_status ?? '').toLowerCase();
+            const videoCanLoad =
+                !isVideoFile(file.name) ||
+                ['local', 'cached', 'offline', 'available'].some((value) =>
+                    localState.includes(value)
+                );
+
+            if (!videoCanLoad) {
+                setHoverPreviewLoading(false);
+                return;
+            }
+
+            setHoverPreviewLoading(true);
+
+            void loadPreview(file.id, effectiveFolderId)
+                .then((src) => {
+                    if (requestId !== hoverRequestRef.current) return;
+                    if (activeHoverPreviewOwner !== file.id) return;
+
+                    if (src) {
+                        setHoverPreviewSrc(src);
+                    }
+                })
+                .catch(() => {
+                    // O card continua funcional mesmo se a prÃ©via falhar.
+                })
+                .finally(() => {
+                    if (
+                        requestId === hoverRequestRef.current &&
+                        activeHoverPreviewOwner === file.id
+                    ) {
+                        setHoverPreviewLoading(false);
+                    }
+                });
+        }, 700);
+    }, [
+        canHoverPreview,
+        effectiveFolderId,
+        file.id,
+        file.local_status,
+        file.name,
+    ]);
+
+    useEffect(() => {
+        return () => {
+            if (hoverTimerRef.current !== null) {
+                window.clearTimeout(hoverTimerRef.current);
+            }
+
+            if (activeHoverPreviewOwner === file.id) {
+                activeHoverPreviewOwner = null;
+            }
+        };
+    }, [file.id]);
+
     return (
         <div
             ref={setNodeRef}
@@ -159,16 +313,62 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
             {...(!isFolder ? listeners : {})}
             onContextMenu={onContextMenu}
             onClick={onClick}
+            onMouseEnter={startHoverPreview}
+            onMouseLeave={stopHoverPreview}
             onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpen?.(); }}
         >
             <article
                 data-file-kind={isFolder ? 'folder' : 'file'}
                 className={`tcloud-file-card group relative h-full w-full min-w-0 cursor-pointer overflow-hidden tcloud-file-card-${variant}
                     ${isSelected ? 'is-selected' : ''}
-                    ${isFileDragOver ? 'is-drop-target' : ''}`}
+                    ${isFileDragOver ? 'is-drop-target' : ''}
+                    ${hoverPreviewActive ? 'is-hover-preview' : ''}`}
                 style={height ? { height: `${height}px` } : { aspectRatio: '4/3' }}
             >
                 <div className="tcloud-file-visual">
+
+                    {hoverPreviewActive && canHoverPreview && (
+                        <div
+                            className="tcloud-hover-preview"
+                            aria-hidden="true"
+                        >
+                            {isImageFile(file.name) && (
+                                <img
+                                    src={hoverPreviewSrc || thumbnail || undefined}
+                                    alt=""
+                                    draggable={false}
+                                />
+                            )}
+
+                            {isVideoFile(file.name) && hoverPreviewSrc && (
+                                <video
+                                    ref={hoverVideoRef}
+                                    src={hoverPreviewSrc}
+                                    muted
+                                    playsInline
+                                    autoPlay
+                                    loop
+                                    preload="metadata"
+                                />
+                            )}
+
+                            {hoverPreviewLoading && (
+                                <div className="tcloud-hover-preview-loading">
+                                    <span />
+                                    Preparando prévia…
+                                </div>
+                            )}
+
+                            {isVideoFile(file.name) &&
+                                !hoverPreviewSrc &&
+                                !hoverPreviewLoading && (
+                                    <div className="tcloud-hover-preview-cloud">
+                                        <span>▶</span>
+                                        Clique para reproduzir
+                                    </div>
+                                )}
+                        </div>
+                    )}
                     {thumbnail ? (
                         <>
                             {!thumbnailReady && <Skeleton className="absolute inset-0 rounded-none" />}

@@ -409,7 +409,7 @@ export function TCloudSimpleSettingsHome({ onNavigate, onOpenOperations, onOpenA
 
       <section className="tcloud-simple-section">
         <div className="tcloud-simple-section-heading">
-          <div><h3>Segundo plano e desempenho</h3><p>Escolha como o TCloud se comporta sem precisar lidar com opções técnicas.</p></div>
+          <div><h3>Sincronização e desempenho</h3><p>Escolha entre economia, equilíbrio ou maior velocidade.</p></div>
         </div>
         <div className="tcloud-simple-preference-grid">
           <label className="tcloud-switch-row">
@@ -480,7 +480,7 @@ export function TCloudSimpleSettingsHome({ onNavigate, onOpenOperations, onOpenA
       <section className="tcloud-simple-help-strip">
         <Settings2 className="h-4 w-4" />
         <div><strong>As configurações técnicas ficam escondidas por padrão.</strong><span>Você pode ativá-las quando precisar diagnosticar ou ajustar algo específico.</span></div>
-        {showAdvanced && onOpenAdvanced && <button type="button" onClick={onOpenAdvanced}><Wrench className="h-4 w-4" /> Abrir diagnóstico</button>}
+        {showAdvanced && onOpenAdvanced && <button type="button" onClick={onOpenAdvanced}><Wrench className="h-4 w-4" /> Ferramentas avançadas</button>}
       </section>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-    Eye, Download, Trash2, FolderOpen, Pencil, Play, FileText, Link, Copy,
+    Eye, Download, Trash2, FolderOpen, Pencil, Play, FileText, Copy,
     ArrowRightLeft, Star, Info, Pin, Eraser, History, Share2, Files, Scissors,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -161,11 +161,13 @@ export function ContextMenu({
             {(onMove || onRename || onVersion) && <div className="tcloud-context-separator" />}
             {onMove && <button type="button" className="tcloud-context-item" onClick={run(onMove)}><ArrowRightLeft className="h-4 w-4" /><span>Mover para...</span></button>}
             {onRename && <button type="button" className="tcloud-context-item" onClick={run(onRename)}><Pencil className="h-4 w-4" /><span>Renomear</span><kbd>F2</kbd></button>}
+            <div className="tcloud-context-advanced-group">
             {!isFolder && onVersion && <button type="button" className="tcloud-context-item" onClick={run(onVersion)}><History className="h-4 w-4" /><span>Salvar versão atual</span></button>}
 
+            
+                    {!isFolder && <button type="button" className="tcloud-context-item" onClick={async () => { await copyOrigin(); onClose(); }}><Copy className="h-4 w-4" /><span>Copiar link</span></button>}
+</div>
             {!isFolder && <div className="tcloud-context-separator" />}
-            {!isFolder && <button type="button" className="tcloud-context-item" onClick={async () => { await copyOrigin(); onClose(); }}><Copy className="h-4 w-4" /><span>Copiar link</span></button>}
-            {!isFolder && onShare && <button type="button" className="tcloud-context-item" onClick={run(onShare)}><Link className="h-4 w-4" /><span>Compartilhar</span></button>}
 
             <div className="tcloud-context-separator" />
             <button type="button" className="tcloud-context-item is-danger" onClick={run(onDelete)}><Trash2 className="h-4 w-4" /><span>Mover para a Lixeira</span><kbd>Del</kbd></button>

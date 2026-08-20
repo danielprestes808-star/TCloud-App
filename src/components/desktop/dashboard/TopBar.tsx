@@ -73,8 +73,10 @@ interface TopBarProps {
     onNavigateRoot: () => void;
     onBack?: () => void;
     onForward?: () => void;
+    onUp?: () => void;
     canGoBack?: boolean;
     canGoForward?: boolean;
+    canGoUp?: boolean;
     isConnected: boolean;
     isSyncing: boolean;
     onSync: () => void | Promise<void>;
@@ -129,8 +131,10 @@ export function TopBar({
     onNavigateRoot,
     onBack,
     onForward,
+    onUp,
     canGoBack = false,
     canGoForward = false,
+    canGoUp = false,
     isConnected,
     isSyncing,
     onSync,
@@ -195,6 +199,7 @@ export function TopBar({
                     <div className="tcloud-explorer-history-buttons" aria-label="Histórico de navegação">
                         <button type="button" onClick={onBack} disabled={!canGoBack} title="Voltar (Alt+←)"><ArrowLeft className="h-4 w-4" /></button>
                         <button type="button" onClick={onForward} disabled={!canGoForward} title="Avançar (Alt+→)"><ArrowRight className="h-4 w-4" /></button>
+                        <button type="button" onClick={onUp} disabled={!canGoUp} title="Subir um nível (Alt+↑)"><ArrowUp className="h-4 w-4" /></button>
                     </div>
                     <div className="tcloud-explorer-breadcrumb" aria-label="Local atual">
                         {(breadcrumbs && breadcrumbs.length > 0 ? breadcrumbs : [
@@ -256,7 +261,7 @@ export function TopBar({
                     </>
                 ) : (
                     <>
-                        {canUploadItems && <button type="button" className="tcloud-explorer-command is-primary-action" onClick={onUploadClick} title="Enviar arquivos para o TCloud"><UploadCloud className="h-4 w-4" /><span>Upload</span></button>}
+                        {canUploadItems && <button type="button" className="tcloud-explorer-command is-primary-action" onClick={onUploadClick} title="Enviar arquivos"><UploadCloud className="h-4 w-4" /><span>Upload</span></button>}
                         {canCreateItems && <button type="button" className="tcloud-explorer-command" onClick={onCreateFolderRequest} title="Nova pasta (Ctrl+Shift+N)"><FolderPlus className="h-4 w-4" /><span>Nova pasta</span></button>}
                         {canCreateItems && clipboardCount > 0 && onPaste && <button type="button" className="tcloud-explorer-command" onClick={onPaste} title="Colar (Ctrl+V)"><ClipboardPaste className="h-4 w-4" /><span>Colar</span></button>}
                     </>
@@ -267,8 +272,14 @@ export function TopBar({
                 {!hasSelection && (
                     <>
                         {showFileTools && <div className="relative">
-                            <button type="button" className={`tcloud-explorer-command ${activeFilterCount > 0 ? 'is-active' : ''}`} onClick={() => openOnly('filter')}>
-                                <Filter className="h-4 w-4" /><span>Filtrar</span>{activeFilterCount > 0 && <b>{activeFilterCount}</b>}
+                            <button
+                                type="button"
+                                className={`tcloud-explorer-command is-compact ${activeFilterCount > 0 ? 'is-active' : ''}`}
+                                onClick={() => openOnly('filter')}
+                                title={activeFilterCount > 0 ? `Filtros ativos: ${activeFilterCount}` : 'Filtrar'}
+                            >
+                                <Filter className="h-4 w-4" />
+                                {activeFilterCount > 0 && <b>{activeFilterCount}</b>}
                             </button>
                             {showFilter && (
                                 <MenuPanel className="absolute end-0 top-10 z-50 w-72">
@@ -345,12 +356,12 @@ export function TopBar({
                             <button type="button" className="tcloud-explorer-command is-compact" onClick={() => openOnly('more')} title="Mais opções"><MoreHorizontal className="h-4 w-4" /></button>
                             {showMore && (
                                 <MenuPanel className="absolute end-0 top-10 z-50 w-56">
-                                    <MenuItem onClick={() => { setShowMore(false); void onOpenExplorer(); }}><FolderOpen className="h-4 w-4" />Abrir no Explorador do Windows</MenuItem>
+                                    <MenuItem onClick={() => { setShowMore(false); void onOpenExplorer(); }}><FolderOpen className="h-4 w-4" />Abrir no Explorador</MenuItem>
                                     {onFolderUploadClick && <MenuItem onClick={() => { setShowMore(false); onFolderUploadClick(); }}><FolderUp className="h-4 w-4" />Enviar uma pasta</MenuItem>}
-                                    <MenuItem onClick={() => { setShowMore(false); onRemoteUploadClick(); }}><Globe className="h-4 w-4" />Enviar usando um link</MenuItem>
-                                    <MenuItem onClick={() => { setShowMore(false); onDownloadFolder(); }}><HardDrive className="h-4 w-4" />Baixar esta pasta</MenuItem>
+                                    <MenuItem onClick={() => { setShowMore(false); onRemoteUploadClick(); }}><Globe className="h-4 w-4" />Enviar por link</MenuItem>
+                                    <MenuItem onClick={() => { setShowMore(false); onDownloadFolder(); }}><HardDrive className="h-4 w-4" />Baixar pasta</MenuItem>
                                     <MenuItem onClick={() => { setShowMore(false); onTCloudSyncClick(); }}><RefreshCw className={`h-4 w-4 ${(isSyncing || syncingCount > 0) ? 'animate-spin' : ''}`} />{problemCount > 0 ? `Sincronização (${problemCount})` : 'Sincronização'}</MenuItem>
-                                    <MenuItem onClick={() => { setShowMore(false); onTCloudClick(); }}><Info className="h-4 w-4" />Status do TCloud</MenuItem>
+                                    <MenuItem onClick={() => { setShowMore(false); onTCloudClick(); }}><Info className="h-4 w-4" />Status</MenuItem>
                                     <MenuItem onClick={() => { setShowMore(false); onSettingsClick(); }}><Settings className="h-4 w-4" />Configurações</MenuItem>
                                 </MenuPanel>
                             )}

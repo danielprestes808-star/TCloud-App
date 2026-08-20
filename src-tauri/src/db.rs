@@ -358,7 +358,9 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
                 target_folder_id INTEGER,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 interval_minutes INTEGER NOT NULL DEFAULT 1440,
-                last_run_at INTEGER
+                last_run_at INTEGER,
+            last_scan_at INTEGER,
+            last_success_at INTEGER
             );
             CREATE TABLE IF NOT EXISTS tcloud_backup_state (
                 backup_id INTEGER NOT NULL,
@@ -379,6 +381,23 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
         ).map_err(|e| e.to_string())?;
     }
 
+    // TCloud backup runtime timestamps.
+    {
+        let _ = conn.execute(
+            "ALTER TABLE tcloud_backup_sources ADD COLUMN last_scan_at INTEGER"
+        );
+
+        let _ = conn.execute(
+            "ALTER TABLE tcloud_backup_sources ADD COLUMN last_success_at INTEGER"
+        );
+
+        let _ = conn.execute(
+            "UPDATE tcloud_backup_sources
+             SET last_scan_at=last_run_at
+             WHERE last_scan_at IS NULL
+               AND last_run_at IS NOT NULL"
+        );
+    }
     // TCloud transfer progress columns (best-effort compatibility migration).
     {
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN bytes_total INTEGER NOT NULL DEFAULT 0");
@@ -410,8 +429,8 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
         let _ = conn.execute("ALTER TABLE tcloud_files ADD COLUMN local_fingerprint TEXT");
         // TCloud 12.5 — mature sync policies, real trash, automatic versions and richer conflicts.
         let _ = conn.execute("CREATE TABLE IF NOT EXISTS tcloud_folder_sync_policies (relative_path TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'normal', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
-        let _ = conn.execute("CREATE TABLE IF NOT EXISTS tcloud_sync_preferences (id INTEGER PRIMARY KEY CHECK(id=1), version_retention INTEGER NOT NULL DEFAULT 10, trash_retention_days INTEGER NOT NULL DEFAULT 30, conflict_strategy TEXT NOT NULL DEFAULT 'keep_both', updated_at INTEGER NOT NULL DEFAULT 0)");
-        let _ = conn.execute("INSERT OR IGNORE INTO tcloud_sync_preferences(id,version_retention,trash_retention_days,conflict_strategy,updated_at) VALUES(1,10,30,'keep_both',0)");
+        let _ = conn.execute("CREATE TABLE IF NOT EXISTS tcloud_sync_preferences (id INTEGER PRIMARY KEY CHECK(id=1), version_retention INTEGER NOT NULL DEFAULT 10, trash_retention_days INTEGER NOT NULL DEFAULT 30, conflict_strategy TEXT NOT NULL DEFAULT 'ask', updated_at INTEGER NOT NULL DEFAULT 0)");
+        let _ = conn.execute("INSERT OR IGNORE INTO tcloud_sync_preferences(id,version_retention,trash_retention_days,conflict_strategy,updated_at) VALUES(1,10,30,'ask',0)");
         let _ = conn.execute("ALTER TABLE tcloud_versions ADD COLUMN file_id INTEGER");
         let _ = conn.execute("ALTER TABLE tcloud_versions ADD COLUMN original_path TEXT");
         let _ = conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tcloud_versions_file_message ON tcloud_versions(file_id,message_id) WHERE file_id IS NOT NULL");

@@ -203,22 +203,58 @@ export function FileExplorer({
 
     const sortedFiles = useMemo(() => {
         return [...files].sort((a, b) => {
+            /*
+             * Windows Explorer behavior:
+             * folders stay together before regular files.
+             *
+             * The selected sort mode is still respected inside
+             * each group, so Nome/Tamanho/Data continue working.
+             */
+            const aFolder = a.type === 'folder';
+            const bFolder = b.type === 'folder';
+
+            if (aFolder !== bFolder) {
+                return aFolder ? -1 : 1;
+            }
+
             let comparison = 0;
+
             switch (sortField) {
                 case 'name':
                     comparison = nameCollator.compare(a.name, b.name);
                     break;
+
                 case 'size':
                     comparison = (a.size || 0) - (b.size || 0);
                     break;
+
                 case 'date':
-                    comparison = (a.created_at || '').localeCompare(b.created_at || '');
+                    comparison = (a.created_at || '').localeCompare(
+                        b.created_at || ''
+                    );
                     break;
             }
-            return sortDirection === 'asc' ? comparison : -comparison;
+
+            return sortDirection === 'asc'
+                ? comparison
+                : -comparison;
         });
     }, [files, sortField, sortDirection, nameCollator]);
 
+    const explorerItemStats = useMemo(() => {
+        let folders = 0;
+        let regularFiles = 0;
+
+        for (const file of sortedFiles) {
+            if (file.type === 'folder') folders++;
+            else regularFiles++;
+        }
+
+        return {
+            folders,
+            files: regularFiles,
+        };
+    }, [sortedFiles]);
     const handlePreviewRequest = useCallback((file: TelegramFile) => {
         onPreview(file, sortedFiles);
     }, [onPreview, sortedFiles]);
@@ -332,6 +368,28 @@ export function FileExplorer({
                 }
             }}
         >
+            <div className="tcloud-explorer-group-summary">
+                {explorerItemStats.folders > 0 && (
+                    <span>
+                        {explorerItemStats.folders}
+                        {' '}
+                        {explorerItemStats.folders === 1 ? 'pasta' : 'pastas'}
+                    </span>
+                )}
+
+                {explorerItemStats.folders > 0 && explorerItemStats.files > 0 && (
+                    <i aria-hidden="true" />
+                )}
+
+                {explorerItemStats.files > 0 && (
+                    <span>
+                        {explorerItemStats.files}
+                        {' '}
+                        {explorerItemStats.files === 1 ? 'arquivo' : 'arquivos'}
+                    </span>
+                )}
+            </div>
+
             {isGridMode ? (
                 <div className="relative w-full" style={{ height: `${gridVirtualizer.getTotalSize()}px` }}>
                     {gridVirtualizer.getVirtualItems().map((virtualRow) => {

@@ -75,6 +75,8 @@ import {
   type ProTrashItem,
   type ProVersionItem,
   listDuplicates,
+  scanDuplicateHashes,
+  trashDuplicateFiles,
   getCleanupStats,
   searchIndexedContent,
   listActivity,
@@ -235,7 +237,7 @@ const tabs: Array<{ id: TCloudAdvancedTab; label: string; icon: typeof Database;
   { id: 'music', label: 'Biblioteca de música', icon: Music2, number: 33 },
 ];
 
-const SIMPLE_ADVANCED_TABS = new Set<TCloudAdvancedTab>(['offline','versions','trash','policies','conflicts','share','backup','gallery','music','storage','health']);
+const SIMPLE_ADVANCED_TABS = new Set<TCloudAdvancedTab>(['offline','versions','trash','policies','conflicts','share','backup','gallery','music','storage','health','duplicates','cleanup','activity','updates']);
 
 const selectedFiles = (files: TelegramFile[], ids: number[]) => files.filter((file) => ids.includes(file.id) && file.type !== 'folder');
 
@@ -276,6 +278,8 @@ export function TCloudAdvancedCenterModal({
   const [backupInterval, setBackupInterval] = useState(1440);
   const [trashRetentionDays, setTrashRetentionDays] = useState(() => Number(localStorage.getItem('tcloud:trash-retention-days') || '30'));
   const [duplicates, setDuplicates] = useState<ProDuplicateGroup[]>([]);
+  const [duplicateSelection, setDuplicateSelection] = useState<number[]>([]);
+  const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [cleanupStats, setCleanupStats] = useState<ProCleanupStats | null>(null);
   const [contentQuery, setContentQuery] = useState('');
   const [contentHits, setContentHits] = useState<ProContentHit[]>([]);
@@ -326,7 +330,7 @@ export function TCloudAdvancedCenterModal({
       getStorageBreakdown().catch(() => []),
       invoke<ShareInfo[]>('cmd_list_share_history').catch(() => []),
       listFolderSyncPolicies().catch(() => []),
-      getSyncMaturitySettings().catch(() => ({ version_retention:10, trash_retention_days:30, conflict_strategy:'keep_both' as const })),
+      getSyncMaturitySettings().catch(() => ({ version_retention:10, trash_retention_days:30, conflict_strategy:'ask' as const })),
       listSyncConflicts().catch(() => []),
     ]);
     setStats(statsResult);
@@ -335,6 +339,8 @@ export function TCloudAdvancedCenterModal({
     setRules(rulesResult);
     setBackups(backupsResult);
     setDuplicates(duplicateResult);
+    const liveDuplicateIds = new Set(duplicateResult.flatMap((group) => group.files.map((file) => file.file_id)));
+    setDuplicateSelection((current) => current.filter((id) => liveDuplicateIds.has(id)));
     setCleanupStats(cleanupResult);
     setActivities(activityResult);
     setStorageBuckets(storageResult);
@@ -674,7 +680,13 @@ export function TCloudAdvancedCenterModal({
         <Feature title="Backup automático de pastas do computador" description="Adicione origens locais. O TCloud verifica o agendamento em segundo plano enquanto o aplicativo estiver rodando e envia os arquivos para a pasta escolhida.">
           <div className="tcloud-pro-actions"><select className="tcloud-pro-input" value={targetFolderId ?? ''} onChange={(event) => setTargetFolderId(event.target.value ? Number(event.target.value) : null)}><option value="">Mensagens Salvas</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><select className="tcloud-pro-input" value={backupInterval} onChange={(event) => setBackupInterval(Number(event.target.value))}><option value={60}>A cada hora</option><option value={360}>A cada 6 horas</option><option value={1440}>Uma vez por dia</option></select><Action onClick={() => void addBackupSource()} icon={Plus}>Adicionar pasta</Action><Action onClick={()=>{const next=!autoCompressBatches;setAutoCompressBatches(next);localStorage.setItem('tcloud:auto-compress-batches',String(next));toast.success(next?'Compactação automática de lotes ativada.':'Compactação automática de lotes desativada.');}} icon={ArchiveRestore}>{autoCompressBatches?'Compactação de lotes: ON':'Compactação de lotes: OFF'}</Action></div>
           <Hint>Quando ativada, a seleção de vários arquivos dentro de uma pasta/tópico é compactada em um único ZIP antes do envio. Upload na raiz continua separado para respeitar regras automáticas de organização.</Hint>
-          <div className="tcloud-pro-list">{backups.map((backup) => <div key={backup.id} className="tcloud-pro-list-row"><div className="min-w-0 flex-1"><strong>{backup.local_path}</strong><small>A cada {backup.interval_minutes} min · {backup.last_run_at ? `último: ${new Date(backup.last_run_at * 1000).toLocaleString()}` : 'ainda não executado'}</small></div><button onClick={async () => { const result = await scanBackup(backup.id); toast.info(`${result.files_found} arquivos · ${formatBytesCompact(result.total_bytes)}`); await refresh(); }}>Analisar</button><button onClick={() => void onRunBackup(backup)}>Executar</button><button className="is-danger" onClick={async () => { await deleteBackup(backup.id); await refresh(); }}>Excluir</button></div>)}</div>
+          <div className="tcloud-pro-list">{backups.map((backup) => <div key={backup.id} className="tcloud-pro-list-row"><div className="min-w-0 flex-1"><strong>{backup.local_path}</strong><small>A cada {backup.interval_minutes} min · {backup.last_scan_at
+  ? `Verificado: ${new Date(backup.last_scan_at * 1000).toLocaleString()}`
+  : 'Ainda não verificado'}
+{' · '}
+{backup.last_success_at
+  ? `Backup concluído: ${new Date(backup.last_success_at * 1000).toLocaleString()}`
+  : 'Nenhum backup concluído'}</small></div><button onClick={async () => { const result = await scanBackup(backup.id); toast.info(`${result.files_found} arquivos · ${formatBytesCompact(result.total_bytes)}`); await refresh(); }}>Analisar</button><button onClick={() => void onRunBackup(backup)}>Executar</button><button className="is-danger" onClick={async () => { await deleteBackup(backup.id); await refresh(); }}>Excluir</button></div>)}</div>
         </Feature>
       );
     }
@@ -697,7 +709,46 @@ export function TCloudAdvancedCenterModal({
       return <Feature title="Pastas inteligentes" description="Coleções virtuais: não movem os arquivos. Elas aplicam filtros sobre a biblioteca atual."><div className="tcloud-smart-grid">{smart.map(([label,query])=><button key={label} onClick={()=>{onSearch(query);onClose();}}><Folder className="h-5 w-5"/><strong>{label}</strong><small>{query}</small></button>)}</div></Feature>;
     }
     if (tab === 'duplicates') {
-      return <Feature title="Detector de duplicados" description="Usa SHA-256 para confirmar conteúdo idêntico e também pode verificar o arquivo local antes do upload."><label className="tcloud-switch-row"><input type="checkbox" checked={duplicateCheck} onChange={(e)=>{setDuplicateCheck(e.target.checked);localStorage.setItem('tcloud:duplicate-check-before-upload',String(e.target.checked));}}/><span><strong>Verificar antes do upload</strong><small>Se um hash idêntico já estiver no índice, o TCloud pergunta antes de reenviar.</small></span></label><MetricGrid values={[[ 'Grupos', duplicates.length ], [ 'Espaço potencial', formatBytesCompact(duplicates.reduce((n,g)=>n+g.reclaimable_bytes,0)) ]]}/><div className="tcloud-pro-list">{duplicates.map((group)=><div className="tcloud-duplicate-group" key={group.sha256}><strong>{group.files.length} cópias · {formatBytesCompact(group.size)}</strong><small>{group.sha256.slice(0,20)}…</small>{group.files.map((file)=><span key={file.file_id}>{file.name}</span>)}</div>)}</div></Feature>;
+      const selectedSet = new Set(duplicateSelection);
+      const toggleDuplicate = (group: ProDuplicateGroup, fileId: number, checked: boolean) => {
+        setDuplicateSelection((current) => {
+          const next = new Set(current);
+          if (!checked) { next.delete(fileId); return Array.from(next); }
+          const selectedInGroup = group.files.filter((file) => next.has(file.file_id)).length;
+          if (selectedInGroup >= group.files.length - 1) {
+            toast.info('Mantenha pelo menos uma cópia deste grupo.');
+            return current;
+          }
+          next.add(fileId);
+          return Array.from(next);
+        });
+      };
+      const selectAllRemovableDuplicates = () => {
+        const next: number[] = [];
+        for (const group of duplicates) {
+          // Keep the first copy shown in each SHA-256 group and select every
+          // additional copy. The user can still adjust individual checkboxes.
+          group.files.slice(1).forEach((file) => next.push(file.file_id));
+        }
+        setDuplicateSelection(next);
+        if (next.length === 0) toast.info('Não há cópias extras para selecionar.');
+        else toast.success(`${next.length} cópia(s) duplicada(s) selecionada(s). Uma cópia de cada grupo foi preservada.`);
+      };
+      return <Feature title="Detector de duplicados" description="Confirma conteúdo idêntico por SHA-256. Você escolhe exatamente quais cópias vão para a Lixeira; o TCloud nunca apaga todas as cópias de um grupo.">
+        <label className="tcloud-switch-row"><input type="checkbox" checked={duplicateCheck} onChange={(e)=>{setDuplicateCheck(e.target.checked);localStorage.setItem('tcloud:duplicate-check-before-upload',String(e.target.checked));}}/><span><strong>Verificar antes do upload</strong><small>Se um SHA-256 idêntico já estiver no índice, o TCloud pergunta antes de reenviar.</small></span></label>
+        <MetricGrid values={[[ 'Grupos confirmados', duplicates.length ], [ 'Espaço potencial', formatBytesCompact(duplicates.reduce((n,g)=>n+g.reclaimable_bytes,0)) ], [ 'Selecionados', duplicateSelection.length ]]}/>
+        <div className="tcloud-pro-actions">
+          {duplicates.length>0&&<Action icon={CopyCheck} onClick={selectAllRemovableDuplicates}>Selecionar todos os duplicados</Action>}
+          <Action icon={RefreshCw} onClick={async()=>{setDuplicateBusy(true);try{const result=await scanDuplicateHashes();await refresh();const detail=`${result.hashed} hash(es) calculados de ${result.candidates} candidato(s).`;await addActivity('duplicates','Verificação de duplicados',detail).catch(()=>null);result.errors.length?toast.warning(`${detail} ${result.errors.length} arquivo(s) não puderam ser verificados.`):toast.success(detail);}catch(error){toast.error(`Não foi possível verificar duplicados: ${String(error)}`);}finally{setDuplicateBusy(false);}}}>{duplicateBusy?'Verificando…':'Verificar agora'}</Action>
+          {duplicateSelection.length>0&&<Action icon={Trash2} onClick={async()=>{if(!window.confirm(`Mover ${duplicateSelection.length} cópia(s) selecionada(s) para a Lixeira?\n\nPelo menos uma cópia de cada grupo será preservada.`))return;setDuplicateBusy(true);try{const result=await trashDuplicateFiles(duplicateSelection);setDuplicateSelection([]);await refresh();onRefresh();window.dispatchEvent(new Event('tcloud-trash-changed'));await addActivity('duplicates','Duplicados movidos para a Lixeira',`${result.moved} arquivo(s)`).catch(()=>null);if(result.failed||result.errors.length){toast.warning(`${result.moved} movido(s); ${result.failed} falha(s).`);}else{toast.success(`${result.moved} cópia(s) movida(s) para a Lixeira.`);}}catch(error){toast.error(`Não foi possível remover as cópias: ${String(error)}`);}finally{setDuplicateBusy(false);}}}>Mover selecionados para a Lixeira</Action>}
+          {duplicateSelection.length>0&&<Action icon={X} onClick={()=>{setDuplicateSelection([]);}}>Limpar seleção</Action>}
+        </div>
+        <Hint>A verificação automática calcula hashes apenas de arquivos já disponíveis localmente; arquivos somente na nuvem não são baixados só para procurar duplicatas.</Hint>
+        <div className="tcloud-pro-list">{duplicates.length===0?<Empty text="Nenhum grupo duplicado confirmado por SHA-256."/>:duplicates.map((group)=><div className="tcloud-duplicate-group" key={group.sha256}>
+          <div className="tcloud-duplicate-group-head"><div><strong>{group.files.length} cópias · {formatBytesCompact(group.size)}</strong><small>Recuperável: {formatBytesCompact(group.reclaimable_bytes)} · SHA-256 {group.sha256.slice(0,20)}…</small></div></div>
+          <div className="tcloud-duplicate-files">{group.files.map((file)=>{const checked=selectedSet.has(file.file_id);const selectedInGroup=group.files.filter((candidate)=>selectedSet.has(candidate.file_id)).length;const wouldRemoveLast=!checked&&selectedInGroup>=group.files.length-1;const location=file.path?.startsWith('telegram:')?'Na nuvem':file.path||'Localização não informada';return <label className={`tcloud-duplicate-file${checked?' is-selected':''}`} key={file.file_id}><input type="checkbox" checked={checked} disabled={wouldRemoveLast||duplicateBusy} onChange={(event)=>toggleDuplicate(group,file.file_id,event.target.checked)}/><span><strong>{file.name}</strong><small>{location} · {file.local_status||file.sync_status||'sincronizado'}{file.updated_at?` · ${new Date(file.updated_at*1000).toLocaleString()}`:''}</small></span></label>;})}</div>
+        </div>)}</div>
+      </Feature>;
     }
     if (tab === 'cleanup') {
       return <Feature title="Limpeza inteligente" description="Executa a limpeza do cache antigo não fixado, remove metadados de versões antigas e expira registros locais da Lixeira sem apagar silenciosamente o arquivo remoto."><MetricGrid values={[[ 'Cache', formatBytesCompact(cleanupStats?.cached_bytes??0) ],[ 'Duplicados recuperáveis', formatBytesCompact(cleanupStats?.duplicate_reclaimable_bytes??0) ],[ 'Lixeira', cleanupStats?.trash_items??0 ],[ 'Versões', cleanupStats?.versions??0 ]]}/><div className="tcloud-pro-actions"><Action icon={Eraser} onClick={async()=>{const result=await applySmartCleanup(30,trashRetentionDays,90);toast.success(`Limpeza concluída: ${formatBytesCompact(result.reclaimed_bytes)} liberados, ${result.removed_files} arquivo(s) de cache removidos.`);await refresh();}}>Executar limpeza recomendada</Action><Action icon={RefreshCw} onClick={refresh}>Recalcular</Action><Action icon={Sparkles} onClick={()=>{const next=!autoCleanup;setAutoCleanup(next);localStorage.setItem('tcloud:auto-cleanup',String(next));toast.success(next?'Limpeza automática diária ativada.':'Limpeza automática desativada.');}}>{autoCleanup?'Automática: ON':'Automática: OFF'}</Action></div></Feature>;
@@ -780,7 +831,7 @@ export function TCloudAdvancedCenterModal({
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-app-overlay p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="tcloud-pro-modal" onClick={(event) => event.stopPropagation()}>
-        <header className="tcloud-pro-header"><div><span>TCLOUD 13.0.9</span><h2>{showTechnicalTabs ? 'Ferramentas avançadas' : 'Recursos avançados'}</h2><p>{showTechnicalTabs ? 'Diagnóstico, integração, desempenho e recursos técnicos.' : 'Recursos extras organizados sem detalhes técnicos desnecessários.'}</p></div><button onClick={onClose}><X className="h-4 w-4" /></button></header>
+        <header className="tcloud-pro-header"><div><span>TCLOUD</span><h2>{showTechnicalTabs ? 'Ferramentas avançadas' : 'Recursos avançados'}</h2><p>{showTechnicalTabs ? 'Diagnóstico, integração, desempenho e recursos técnicos.' : 'Recursos adicionais e ferramentas de manutenção do TCloud.'}</p></div><button onClick={onClose}><X className="h-4 w-4" /></button></header>
         <div className="tcloud-pro-layout">
           <nav className="tcloud-pro-nav">{visibleTabs.map(({ id, label, icon: Icon, number }) => <button key={id} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}><span className="tcloud-pro-nav-number">{number}</span><Icon className="h-4 w-4" /><span>{label}</span></button>)}</nav>
           <main className="tcloud-pro-content">{content}</main>

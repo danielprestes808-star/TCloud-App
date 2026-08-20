@@ -57,6 +57,8 @@ export interface ProBackupSource {
   enabled: boolean;
   interval_minutes: number;
   last_run_at: number | null;
+  last_scan_at?: number | null;
+  last_success_at?: number | null;
 }
 
 export interface ProBackupScanResult {
@@ -118,16 +120,20 @@ export const markBackupFile = (id: number, filePath: string) => invoke<boolean>(
 
 export interface ProIndexFileRow { message_id: number; name: string; size: number; created_at?: string | null; sync_status: string; local_status: string; is_pinned: boolean; }
 export const listIndexedFiles = (folderId: number | null) => invoke<ProIndexFileRow[]>('tcloud_pro_index_list_files', { folderId });
-export const upsertIndexedFiles = (folderId: number | null, files: Array<{message_id:number;name:string;size:number;created_at?:string|null}>) => invoke<number>('tcloud_pro_index_upsert_files', { folderId, files });
+export const upsertIndexedFiles = (folderId: number | null, files: Array<{message_id:number;name:string;size:number;mime_type?:string|null;created_at?:string|null}>) => invoke<number>('tcloud_pro_index_upsert_files', { folderId, files });
 
 
-export interface ProDuplicateFile { file_id:number; telegram_message_id:number|null; telegram_chat_id:number|null; name:string; size:number; sha256:string; }
+export interface ProDuplicateFile { file_id:number; telegram_message_id:number|null; telegram_chat_id:number|null; name:string; size:number; sha256:string; path:string; local_status:string; sync_status:string; updated_at:number; }
 export interface ProDuplicateGroup { sha256:string; size:number; reclaimable_bytes:number; files:ProDuplicateFile[]; }
+export interface ProDuplicateScanResult { candidates:number; hashed:number; skipped:number; errors:string[]; }
+export interface ProDuplicateTrashResult { moved:number; failed:number; errors:string[]; }
 export interface ProCleanupStats { cached_files:number; cached_bytes:number; duplicate_groups:number; duplicate_reclaimable_bytes:number; trash_items:number; versions:number; }
 export interface ProContentHit { file_id:number; telegram_message_id:number|null; telegram_chat_id:number|null; name:string; size:number; snippet:string; }
 export interface ProActivityItem { id:number; kind:string; title:string; detail?:string|null; created_at:number; }
 
 export const listDuplicates = () => invoke<ProDuplicateGroup[]>('tcloud_pro_duplicates');
+export const scanDuplicateHashes = () => invoke<ProDuplicateScanResult>('tcloud_pro_duplicates_scan_local');
+export const trashDuplicateFiles = (fileIds:number[]) => invoke<ProDuplicateTrashResult>('tcloud_pro_duplicates_trash',{fileIds});
 export const getCleanupStats = () => invoke<ProCleanupStats>('tcloud_pro_cleanup_stats');
 export const reindexTextContent = () => invoke<number>('tcloud_pro_reindex_text_content');
 export const searchIndexedContent = (query:string) => invoke<ProContentHit[]>('tcloud_pro_content_search', { query });

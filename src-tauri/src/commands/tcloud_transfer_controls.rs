@@ -60,7 +60,6 @@ pub(crate) fn refresh_global_pause_locked(conn: &sqlite::Connection) -> Result<T
         resume.bind((1, now)).map_err(|e| e.to_string())?;
         resume.next().map_err(|e| e.to_string())?;
         drop(resume);
-        drop(conn);
         crate::sync::scheduler::signal_sync_work();
         return Ok(TCloudGlobalPauseState { paused: false, until: None });
     }

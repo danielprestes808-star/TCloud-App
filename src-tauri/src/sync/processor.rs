@@ -62,6 +62,9 @@ fn is_transient_network_error(error: &str) -> bool {
         "connection aborted",
         "connection closed",
         "broken pipe",
+        "read 0 bytes",
+        "unexpected eof",
+        "temporarily unavailable",
         "network is unreachable",
         "host is unreachable",
         "no route to host",
@@ -198,48 +201,6 @@ impl<R: AsyncRead + Unpin> AsyncRead for ThrottledCountingReader<R> {
     }
 }
 
-struct CountingReader<R> {
-    inner: R,
-    counter: Arc<AtomicU64>,
-    cancel_flag: Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl<R> CountingReader<R> {
-    fn new(
-        inner: R,
-        counter: Arc<AtomicU64>,
-        cancel_flag: Arc<std::sync::atomic::AtomicBool>,
-    ) -> Self {
-        Self { inner, counter, cancel_flag }
-    }
-}
-
-impl<R: AsyncRead + Unpin> AsyncRead for CountingReader<R> {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let this = self.get_mut();
-        if this.cancel_flag.load(Ordering::Relaxed) {
-            return Poll::Ready(Err(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "TCloud transfer cancelled",
-            )));
-        }
-        let before = buf.filled().len();
-        let result = Pin::new(&mut this.inner).poll_read(cx, buf);
-        if let Poll::Ready(Ok(())) = &result {
-            let after = buf.filled().len();
-            let delta = after.saturating_sub(before) as u64;
-            if delta > 0 {
-                this.counter.fetch_add(delta, Ordering::Relaxed);
-            }
-        }
-        result
-    }
-}
-
 #[derive(Debug, Clone)]
 struct PendingJob {
     job_id: i64,
@@ -287,6 +248,64 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
             let _=conn.execute(
                 "UPDATE tcloud_sync_jobs SET priority=MAX(COALESCE(priority,0),190),next_attempt_at=NULL                  WHERE status='pending' AND remote_commit_message_id IS NOT NULL"
             );
+            // Elimina uploads/refresh antigos substituídos por uma solicitação mais nova.
+            let _=conn.execute(format!(
+                "UPDATE tcloud_sync_jobs
+                 SET status='cancelled',
+                     cancel_requested=1,
+                     error='Substituído por uma sincronização mais recente.',
+                     updated_at={now}
+                 WHERE status='pending'
+                   AND remote_commit_message_id IS NULL
+                   AND operation IN ('upload','refresh')
+                   AND EXISTS (
+                       SELECT 1
+                       FROM tcloud_sync_jobs newer
+                       WHERE newer.file_id=tcloud_sync_jobs.file_id
+                         AND newer.operation IN ('upload','refresh')
+                         AND newer.id>tcloud_sync_jobs.id
+                         AND newer.status IN ('pending','running')
+                         AND COALESCE(newer.cancel_requested,0)=0
+                   );"
+            ));
+
+            
+            // TCloud sync history retention.
+            // Mantém histórico recente para diagnóstico, mas impede que
+            // dezenas de milhares de jobs antigos cresçam indefinidamente.
+            let history_cutoff = now - (30 * 24 * 60 * 60);
+
+            let _ = conn.execute(format!(
+                "DELETE FROM tcloud_sync_jobs
+                 WHERE status IN ('completed','cancelled')
+                   AND updated_at < {history_cutoff}
+                   AND remote_commit_message_id IS NULL
+                   AND id NOT IN (
+                       SELECT id FROM (
+                           SELECT id
+                           FROM tcloud_sync_jobs
+                           WHERE status IN ('completed','cancelled')
+                           ORDER BY id DESC
+                           LIMIT 5000
+                       )
+                   );"
+            ));// Não gastar workers com pendências antigas de arquivos já confirmados
+            // como sincronizados. Jobs com checkpoint remoto ficam preservados.
+            let _=conn.execute(format!(
+                "UPDATE tcloud_sync_jobs
+                 SET status='cancelled',
+                     cancel_requested=1,
+                     error='Pendência antiga ignorada: o arquivo já está sincronizado.',
+                     updated_at={now}
+                 WHERE status='pending'
+                   AND remote_commit_message_id IS NULL
+                   AND operation IN ('upload','refresh')
+                   AND file_id IN (
+                       SELECT id
+                       FROM tcloud_files
+                       WHERE COALESCE(sync_status,'')='synced'
+                   );"
+            ));
         }
     }
 
@@ -358,6 +377,130 @@ fn requeue_after_finalize_failure(db:&DbConnection,job_id:i64,error:&str)->Resul
     drop(stmt);drop(conn);signal_sync_work();Ok(())
 }
 
+
+fn handle_missing_local_upload(
+    db: &DbConnection,
+    job: &PendingJob,
+    error: &str,
+) -> Result<bool, String> {
+    if !matches!(job.operation.as_str(), "upload" | "refresh") {
+        return Ok(false);
+    }
+
+    let normalized = error.to_ascii_lowercase();
+
+    if !normalized.contains("local file not found") {
+        return Ok(false);
+    }
+
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+
+    let mut query = conn
+        .prepare(
+            "SELECT telegram_message_id, telegram_file_id, sync_status
+             FROM tcloud_files
+             WHERE id=?1
+             LIMIT 1"
+        )
+        .map_err(|e| e.to_string())?;
+
+    query.bind((1, job.file_id)).map_err(|e| e.to_string())?;
+
+    if !matches!(
+        query.next().map_err(|e| e.to_string())?,
+        sqlite::State::Row
+    ) {
+        return Ok(false);
+    }
+
+    let telegram_message_id =
+        query.read::<Option<i64>, _>(0).unwrap_or(None);
+
+    let telegram_file_id =
+        query.read::<Option<String>, _>(1).unwrap_or(None);
+
+    let current_status =
+        query.read::<String, _>(2).unwrap_or_default();
+
+    drop(query);
+
+    // Se existe referência remota, não assumimos que o arquivo pode ser
+    // descartado. Isso pode representar um placeholder, cache removido ou
+    // arquivo do Telegram ainda não hidratado.
+    if telegram_message_id.is_some() || telegram_file_id.is_some() {
+        return Ok(false);
+    }
+
+    // Estados removidos já não precisam de qualquer upload.
+    if matches!(
+        current_status.as_str(),
+        "deleted" | "trashed" | "remote_deleted" | "pending_delete"
+    ) {
+        let now = chrono::Utc::now().timestamp();
+
+        let mut cancel = conn
+            .prepare(
+                "UPDATE tcloud_sync_jobs
+                 SET status='cancelled',
+                     cancel_requested=1,
+                     error='Upload obsoleto: arquivo local já removido.',
+                     speed_bps=0,
+                     eta_seconds=NULL,
+                     updated_at=?1
+                 WHERE id=?2"
+            )
+            .map_err(|e| e.to_string())?;
+
+        cancel.bind((1, now)).map_err(|e| e.to_string())?;
+        cancel.bind((2, job.job_id)).map_err(|e| e.to_string())?;
+        cancel.next().map_err(|e| e.to_string())?;
+
+        return Ok(true);
+    }
+
+    // Arquivo criado localmente, nunca enviado ao Telegram e que já não
+    // existe mais: encerra o registro obsoleto sem gerar "Precisa de atenção".
+    let now = chrono::Utc::now().timestamp();
+
+    let mut cancel = conn
+        .prepare(
+            "UPDATE tcloud_sync_jobs
+             SET status='cancelled',
+                 cancel_requested=1,
+                 error='Upload cancelado automaticamente: arquivo local não existe mais.',
+                 speed_bps=0,
+                 eta_seconds=NULL,
+                 updated_at=?1
+             WHERE id=?2"
+        )
+        .map_err(|e| e.to_string())?;
+
+    cancel.bind((1, now)).map_err(|e| e.to_string())?;
+    cancel.bind((2, job.job_id)).map_err(|e| e.to_string())?;
+    cancel.next().map_err(|e| e.to_string())?;
+
+    drop(cancel);
+
+    let mut file = conn
+        .prepare(
+            "UPDATE tcloud_files
+             SET sync_status='deleted',
+                 local_status='deleted',
+                 updated_at=?1
+             WHERE id=?2
+               AND telegram_message_id IS NULL
+               AND telegram_file_id IS NULL"
+        )
+        .map_err(|e| e.to_string())?;
+
+    file.bind((1, now)).map_err(|e| e.to_string())?;
+    file.bind((2, job.file_id)).map_err(|e| e.to_string())?;
+    file.next().map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
 async fn process_next(app: &AppHandle, db: &DbConnection) -> Result<bool, String> {
     if network_cooldown_remaining_secs() > 0 {
         return Ok(false);
@@ -419,6 +562,13 @@ async fn process_next(app: &AppHandle, db: &DbConnection) -> Result<bool, String
                     );
                     return Ok(true);
                 }
+                _ if handle_missing_local_upload(db, &job, &error)? => {
+                    log::info!(
+                        "TCloud: upload obsoleto do job {} encerrado automaticamente.",
+                        job.job_id
+                    );
+                    return Ok(true);
+                }
                 _ => {
                     fail_job(db, job.job_id, &error)?;
                     return Err(format!("job {} failed: {}", job.job_id, error));
@@ -442,7 +592,7 @@ fn claim_next_job(db: &DbConnection) -> Result<Option<PendingJob>, String> {
     // the scheduler at the same time.
     let max_concurrent={
         let mut q=conn.prepare("SELECT value FROM tcloud_settings WHERE key='max_concurrent_transfers' LIMIT 1").map_err(|e|e.to_string())?;
-        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){q.read::<String,_>(0).ok().and_then(|v|v.parse::<i64>().ok()).unwrap_or(4).clamp(1,8)}else{4}
+        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){q.read::<String,_>(0).ok().and_then(|v|v.parse::<i64>().ok()).unwrap_or(8).clamp(1,8)}else{8}
     };
     let running={
         let mut q=conn.prepare("SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status='running'").map_err(|e|e.to_string())?;
@@ -460,6 +610,12 @@ fn claim_next_job(db: &DbConnection) -> Result<Option<PendingJob>, String> {
            AND j.paused=0
            AND j.cancel_requested=0
            AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= ?1)
+             AND NOT (
+                 j.operation IN ('upload','refresh')
+                 AND c.file_id IS NOT NULL
+                 AND COALESCE(f.local_status,'')='cloud_only'
+                 AND f.telegram_message_id IS NOT NULL
+             )
          ORDER BY j.priority DESC,j.created_at ASC,j.id ASC LIMIT 1"
     ).map_err(|e|e.to_string())?;
     stmt.bind((1,now)).map_err(|e|e.to_string())?;
@@ -971,29 +1127,93 @@ async fn download_job(
         download_throttle.set_transferred(resume_at as u64);
     }
 
-    let mut stream = client
-        .iter_download(&media)
-        .chunk_size(DOWNLOAD_CHUNK_SIZE);
-    if resume_at > 0 {
-        stream = stream.skip_chunks((resume_at / DOWNLOAD_CHUNK_SIZE as i64) as i32);
-    }
+    // 14.24: arquivos grandes sem limite de banda usam uma janela de
+    // quatro requests Telegram em paralelo. ? a mesma concorr?ncia usada
+    // internamente pelo grammers para arquivos grandes, mas mantemos aqui
+    // o nosso .part, retomada, progresso e controles de pausa/cancelamento.
+    const FAST_DOWNLOAD_MIN_SIZE: i64 = 10 * 1024 * 1024;
+    const FAST_DOWNLOAD_WORKERS: i64 = 4;
 
-    while let Some(chunk) = stream.next().await.transpose() {
-        if let Err(error) = wait_for_job_control(db, job.job_id).await {
-            // A deliberate cancel should free the partial file. Network failures and
-            // crashes keep it so the next attempt can resume from a chunk boundary.
-            drop(output);
-            let _ = tokio::fs::remove_file(&temp).await;
-            return Err(error);
+    let fast_download =
+        total >= FAST_DOWNLOAD_MIN_SIZE
+        && !network_settings.economy_mode
+        && network_settings.download_limit_bps == 0;
+
+    if fast_download {
+        let chunk_size = DOWNLOAD_CHUNK_SIZE as i64;
+        let total_chunks = (total + chunk_size - 1) / chunk_size;
+        let mut next_chunk = resume_at / chunk_size;
+
+        while next_chunk < total_chunks {
+            if let Err(error) = wait_for_job_control(db, job.job_id).await {
+                drop(output);
+                let _ = tokio::fs::remove_file(&temp).await;
+                return Err(error);
+            }
+
+            let end_chunk =
+                (next_chunk + FAST_DOWNLOAD_WORKERS).min(total_chunks);
+
+            let mut requests = Vec::new();
+
+            for chunk_index in next_chunk..end_chunk {
+                let mut part_stream = client
+                    .iter_download(&media)
+                    .chunk_size(DOWNLOAD_CHUNK_SIZE)
+                    .skip_chunks(chunk_index as i32);
+
+                requests.push(async move {
+                    (chunk_index, part_stream.next().await)
+                });
+            }
+
+            let results = futures::future::join_all(requests).await;
+
+            for (_chunk_index, result) in results {
+                let maybe_bytes = result.map_err(|e| map_error(&e))?;
+                let bytes = maybe_bytes.ok_or_else(|| {
+                    "Telegram encerrou o download antes do tamanho esperado.".to_string()
+                })?;
+
+                output
+                    .write_all(&bytes)
+                    .await
+                    .map_err(|e| format!("failed to write cache file: {e}"))?;
+
+                downloaded += bytes.len() as i64;
+                update_transfer_progress(db, job.job_id, downloaded)?;
+            }
+
+            next_chunk = end_chunk;
         }
-        let bytes = chunk.map_err(|e| map_error(&e))?;
-        output
-            .write_all(&bytes)
-            .await
-            .map_err(|e| format!("failed to write cache file: {e}"))?;
-        downloaded += bytes.len() as i64;
-        download_throttle.account(bytes.len() as u64).await;
-        update_transfer_progress(db, job.job_id, downloaded)?;
+    } else {
+        let mut stream = client
+            .iter_download(&media)
+            .chunk_size(DOWNLOAD_CHUNK_SIZE);
+
+        if resume_at > 0 {
+            stream =
+                stream.skip_chunks((resume_at / DOWNLOAD_CHUNK_SIZE as i64) as i32);
+        }
+
+        while let Some(chunk) = stream.next().await.transpose() {
+            if let Err(error) = wait_for_job_control(db, job.job_id).await {
+                drop(output);
+                let _ = tokio::fs::remove_file(&temp).await;
+                return Err(error);
+            }
+
+            let bytes = chunk.map_err(|e| map_error(&e))?;
+
+            output
+                .write_all(&bytes)
+                .await
+                .map_err(|e| format!("failed to write cache file: {e}"))?;
+
+            downloaded += bytes.len() as i64;
+            download_throttle.account(bytes.len() as u64).await;
+            update_transfer_progress(db, job.job_id, downloaded)?;
+        }
     }
 
     output
@@ -1044,6 +1264,11 @@ fn finish_job(app:&AppHandle,db:&DbConnection,job:&PendingJob,remote_message_id:
                 };
                 let mut update=conn.prepare(
                     "UPDATE tcloud_files SET telegram_message_id=?1,
+                     path=CASE
+                         WHEN path LIKE 'telegram:%'
+                         THEN 'telegram:' || COALESCE(telegram_chat_id,0) || ':' || ?1
+                         ELSE path
+                     END,
                      sha256=COALESCE((SELECT remote_commit_sha256 FROM tcloud_sync_jobs WHERE id=?5),sha256),
                      sync_status=CASE WHEN sync_status IN ('trashed','deleted','remote_deleted') THEN sync_status ELSE ?2 END,
                      local_status=CASE WHEN sync_status IN ('trashed','deleted','remote_deleted') THEN local_status ELSE 'local' END,

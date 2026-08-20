@@ -65,8 +65,8 @@ export interface Settings {
 const defaultSettings: Settings = {
     viewMode: 'medium',
     autoUpdate: true,
-    maxConcurrentUploads: 6,
-    maxConcurrentDownloads: 6,
+    maxConcurrentUploads: 8,
+    maxConcurrentDownloads: 8,
     zipFolders: true,
     language: 'system',
 
@@ -150,6 +150,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                     if ((merged.viewMode as string) === 'grid') {
                         merged.viewMode = 'medium';
                     }
+
+                    // TCloud: o perfil de desempenho é a fonte única de concorrência.
+                    const performanceProfile = localStorage.getItem('tcloud:performance-profile');
+                    const profileConcurrency =
+                        performanceProfile === 'economy'
+                            ? 2
+                            : 8;
+
+                    merged.maxConcurrentUploads = profileConcurrency;
+                    merged.maxConcurrentDownloads = profileConcurrency;
+
                     setSettings(merged);
                 }
             } catch {
@@ -182,6 +193,49 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     useEffect(() => () => {
         if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current);
     }, []);
+    useEffect(() => {
+        const handlePerformanceProfileChanged = (event: Event) => {
+            const customEvent = event as CustomEvent<{ profile?: string }>;
+            const profile = customEvent.detail?.profile;
+
+            const concurrency =
+                profile === 'economy'
+                    ? 2
+                    : profile === 'performance'
+                        ? 8
+                        : 4;
+
+            setSettings(prev => {
+                if (
+                    prev.maxConcurrentUploads === concurrency &&
+                    prev.maxConcurrentDownloads === concurrency
+                ) {
+                    return prev;
+                }
+
+                const next = {
+                    ...prev,
+                    maxConcurrentUploads: concurrency,
+                    maxConcurrentDownloads: concurrency,
+                };
+
+                persistSettings(next);
+                return next;
+            });
+        };
+
+        window.addEventListener(
+            'tcloud-performance-profile-changed',
+            handlePerformanceProfileChanged
+        );
+
+        return () => {
+            window.removeEventListener(
+                'tcloud-performance-profile-changed',
+                handlePerformanceProfileChanged
+            );
+        };
+    }, [persistSettings]);
 
     const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
         setSettings(prev => {

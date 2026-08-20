@@ -212,7 +212,7 @@ pub fn tcloud_sync_maturity_set_policy(app:AppHandle,db:State<'_,DbConnection>,r
 
 #[tauri::command]
 pub fn tcloud_sync_maturity_get_settings(db:State<'_,DbConnection>)->Result<SyncMaturitySettings,String>{
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;let mut s=conn.prepare("SELECT version_retention,trash_retention_days,conflict_strategy FROM tcloud_sync_preferences WHERE id=1").map_err(|e|e.to_string())?;if !matches!(s.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Err("Preferências de sincronização ausentes.".into());}Ok(SyncMaturitySettings{version_retention:s.read(0).unwrap_or(10),trash_retention_days:s.read(1).unwrap_or(30),conflict_strategy:s.read(2).unwrap_or_else(|_|"keep_both".into())})
+    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;let mut s=conn.prepare("SELECT version_retention,trash_retention_days,conflict_strategy FROM tcloud_sync_preferences WHERE id=1").map_err(|e|e.to_string())?;if !matches!(s.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Err("Preferências de sincronização ausentes.".into());}Ok(SyncMaturitySettings{version_retention:s.read(0).unwrap_or(10),trash_retention_days:s.read(1).unwrap_or(30),conflict_strategy:s.read(2).unwrap_or_else(|_|"ask".into())})
 }
 
 #[tauri::command]

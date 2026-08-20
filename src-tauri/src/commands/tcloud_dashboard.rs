@@ -82,11 +82,39 @@ pub fn tcloud_get_dashboard_stats(
         "SELECT COALESCE(SUM(size), 0) FROM tcloud_files"
     )?;
 
+    /*
+     * Recentes reais:
+     * 1. Arquivos efetivamente acessados vêm primeiro, usando
+     *    tcloud_cache.last_accessed_at.
+     * 2. Enquanto o usuário ainda não tiver histórico suficiente,
+     *    completamos com arquivos atualizados recentemente.
+     * 3. Não mostramos itens apagados/lixeira.
+     */
     let mut recent_stmt = conn
         .prepare(
-            "SELECT id, name, path, size, sync_status, local_status, updated_at
-             FROM tcloud_files
-             ORDER BY updated_at DESC
+            "SELECT
+                 f.id,
+                 f.name,
+                 f.path,
+                 f.size,
+                 f.sync_status,
+                 f.local_status,
+                 CASE
+                     WHEN c.last_accessed_at IS NOT NULL
+                         THEN c.last_accessed_at
+                     ELSE f.updated_at
+                 END AS recent_at
+             FROM tcloud_files f
+             LEFT JOIN tcloud_cache c
+                    ON c.file_id = f.id
+             WHERE COALESCE(f.sync_status,'') NOT IN ('deleted','trashed')
+               AND COALESCE(f.local_status,'') != 'deleted'
+             ORDER BY
+                 CASE
+                     WHEN c.last_accessed_at IS NOT NULL THEN 0
+                     ELSE 1
+                 END ASC,
+                 recent_at DESC
              LIMIT 8"
         )
         .map_err(|e| e.to_string())?;

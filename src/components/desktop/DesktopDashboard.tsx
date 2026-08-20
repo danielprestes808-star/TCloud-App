@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo, useDeferredValue, type MouseEvent } from 'react';
-import { AnimatePresence } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -47,8 +46,8 @@ import { useSettings, type ExplorerViewMode } from '../../context/SettingsContex
 import { useConfirm } from '../../context/ConfirmContext';
 import { favoriteKey, getFavoriteIds, subscribeFavorites, syncFavoritesFromTelegram, type FavoriteKey } from '../../services/tcloudFavorites';
 import { getCfapiStatus, openCfapiRoot, parseNaturalTCloudSearch, retryFailedCfapiOperations, setCfapiItemAvailability } from '../../services/tcloudCompletion';
-import { createTCloudForum, createTCloudForumTopic, listTCloudForumTree, refreshTCloudForumTreeFromTelegram, type TCloudForumTree } from '../../services/tcloudForums';
-import { listBackups, listBackupFiles, listIndexedFiles, markBackupFile, markBackupRun, listTrash, searchIndexedContent, upsertIndexedFiles, type ProBackupSource } from '../../services/tcloudProductivity';
+import { createTCloudForum, createTCloudForumTopic, refreshTCloudForumTreeFromTelegram, type TCloudForumTree } from '../../services/tcloudForums';
+import { listBackupFiles, listIndexedFiles, markBackupFile, markBackupRun, listTrash, searchIndexedContent, upsertIndexedFiles, type ProBackupSource } from '../../services/tcloudProductivity';
 import { purgeTrash } from '../../services/tcloudSyncMaturity';
 import { cleanupStaleTCloudAttention, getTCloudSyncOverview, retryAllTCloudSyncFailures } from '../../services/tcloudSyncCenter';
 import { isTCloudUiBackgroundReady } from '../../services/tcloudWindowResume';
@@ -64,7 +63,6 @@ const PdfViewer = lazy(() => import('./dashboard/PdfViewer').then((m) => ({ defa
 const ArchiveViewerModal = lazy(() => import('./dashboard/ArchiveViewerModal').then((m) => ({ default: m.ArchiveViewerModal })));
 const SettingsModal = lazy(() => import('./dashboard/SettingsModal').then((m) => ({ default: m.SettingsModal })));
 const ShareDialog = lazy(() => import('./dashboard/ShareDialog').then((m) => ({ default: m.ShareDialog })));
-const RenameFolderModal = lazy(() => import('./dashboard/RenameFolderModal').then((m) => ({ default: m.RenameFolderModal })));
 const RemoteUploadModal = lazy(() => import('./dashboard/RemoteUploadModal').then((m) => ({ default: m.RemoteUploadModal })));
 const TCloudDashboardModal = lazy(() => import('./dashboard/TCloudDashboardModal').then((m) => ({ default: m.TCloudDashboardModal })));
 const TCloudSyncCenterModal = lazy(() => import('./dashboard/TCloudSyncCenterModal').then((m) => ({ default: m.TCloudSyncCenterModal })));
@@ -95,7 +93,7 @@ function LazyOverlayFallback() {
         <div className="pointer-events-none fixed inset-0 z-[250] flex items-center justify-center bg-black/10" aria-live="polite">
             <div className="flex items-center gap-2 rounded-lg border border-app-border bg-app-surface/95 px-3 py-2 text-sm text-app-text-secondary shadow-lg">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Abrindo…
+                Abrindo...
             </div>
         </div>
     );
@@ -156,11 +154,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     // This avoids separate Telegram scans producing slightly different UI trees.
     const { data: forumTree = [] } = useQuery({
         queryKey: ['tcloud-forum-tree'],
-        queryFn: listTCloudForumTree,
+        queryFn: refreshTCloudForumTreeFromTelegram,
         enabled: isConnected,
-        staleTime: 15_000,
-        refetchInterval: 60_000,
-        refetchIntervalInBackground: false,
+        staleTime: 5_000,
+        refetchInterval: 15_000,
+        refetchIntervalInBackground: true,
     });
 
     useEffect(() => {
@@ -175,7 +173,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         let inFlight = false;
         const refreshRemoteTree = async () => {
             if (inFlight) return;
-            if (document.visibilityState !== 'visible') return;
             if (!isTCloudUiBackgroundReady(700)) return;
             inFlight = true;
             try {
@@ -190,9 +187,19 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 inFlight = false;
             }
         };
-        const firstDelay = forumTree.length === 0 ? 300 : 12_000;
+        // Startup priority:
+        // 1. render local SQLite/cache
+        // 2. refresh the folder currently visible
+        // 3. only then perform the heavier Telegram forum-tree refresh
+        //
+        // An empty tree previously triggered this after only 300ms, competing
+        // directly with cmd_get_files during cold startup.
+        const firstDelay = forumTree.length === 0 ? 4_000 : 12_000;
         const first = window.setTimeout(() => void refreshRemoteTree(), firstDelay);
-        const timer = window.setInterval(() => void refreshRemoteTree(), 60_000);
+        // 13.0.16: keep importing folders created on another TCloud client.
+        // The refresh itself is visibility/in-flight guarded, so this does not
+        // compete with an active foreground operation.
+        const remoteTreeTimer = window.setInterval(() => void refreshRemoteTree(), 15_000);
         let resumeTimer: number | null = null;
         const afterResume = () => {
             if (resumeTimer !== null) window.clearTimeout(resumeTimer);
@@ -205,37 +212,50 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         return () => {
             cancelled = true;
             window.clearTimeout(first);
-            window.clearInterval(timer);
+            window.clearInterval(remoteTreeTimer);
             if (resumeTimer !== null) window.clearTimeout(resumeTimer);
             window.removeEventListener('tcloud-ui-resumed', afterResume);
         };
     }, [isConnected, queryClient, forumTree.length]);
 
     useEffect(() => {
-        // Explorer Logic Stage 4: Windows Explorer can now create/rename/delete
-        // managed folders directly. Rust emits these events after the Telegram
-        // namespace commits, so every surface using the shared query updates at
-        // once instead of waiting for the 60s background refresh.
-        let cancelled = false;
-        const unlisteners: Array<() => void> = [];
+        let refreshTimer: number | null = null;
+
         const refreshTree = () => {
-            void queryClient.invalidateQueries({ queryKey: ['tcloud-forum-tree'] });
-            if (activeFolderId !== null) {
-                void queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
+            if (refreshTimer !== null) {
+                window.clearTimeout(refreshTimer);
             }
+
+            refreshTimer = window.setTimeout(() => {
+                refreshTimer = null;
+
+                void queryClient.invalidateQueries({
+                    queryKey: ['tcloud-forum-tree']
+                });
+
+                if (activeFolderId !== null) {
+                    void queryClient.invalidateQueries({
+                        queryKey: ['files', activeFolderId]
+                    });
+                }
+            }, 250);
         };
-        void Promise.all([
+
+        const unlistenPromises = [
             listen('tcloud-folder-tree-changed', refreshTree),
             listen('tcloud-explorer-folders-changed', refreshTree),
-        ]).then((items) => {
-            if (cancelled) items.forEach((unlisten) => unlisten());
-            else unlisteners.push(...items);
-        });
+        ];
+
         return () => {
-            cancelled = true;
-            unlisteners.forEach((unlisten) => unlisten());
+            if (refreshTimer !== null) {
+                window.clearTimeout(refreshTimer);
+            }
+
+            void Promise.all(unlistenPromises).then((unlisteners) => {
+                unlisteners.forEach((unlisten) => unlisten());
+            });
         };
-    }, [queryClient, activeFolderId]);
+    }, [activeFolderId, queryClient]);
 
     const [previewFile, setPreviewFile] = useState<TelegramFile | null>(null);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -428,8 +448,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [bulkShareCopied, setBulkShareCopied] = useState<Set<string>>(new Set());
     const [previewContextFiles, setPreviewContextFiles] = useState<TelegramFile[]>([]);
     const [previewContextIndex, setPreviewContextIndex] = useState(-1);
-    const [renameFolder, setRenameFolder] = useState<{ id: number; name: string } | null>(null);
-    const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
+const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
 
     // Long-hidden windows keep the active folder hot, but release inactive query
     // payloads accumulated while browsing many folders/videos. The bounded local
@@ -478,18 +497,42 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             if (!memorySnapshot) {
                 try {
                     const indexed = await listIndexedFiles(activeFolderId);
-                    cachedFiles = indexed.map((row) => ({
-                        id: row.message_id,
-                        name: row.name,
-                        size: row.size,
-                        sizeStr: formatBytes(row.size),
-                        created_at: row.created_at ?? undefined,
-                        type: 'file' as const,
-                        folder_id: activeFolderId,
-                        sync_status: row.sync_status,
-                        local_status: row.local_status,
-                        is_pinned: row.is_pinned,
-                    }));
+                    cachedFiles = indexed.map((row) => {
+                        const dot = row.name.lastIndexOf('.');
+                        const fileExt =
+                            dot > 0 && dot < row.name.length - 1
+                                ? row.name.slice(dot + 1).toLowerCase()
+                                : undefined;
+
+                        const mimeType =
+                            fileExt === 'pdf' ? 'application/pdf' :
+                            ['jpg', 'jpeg'].includes(fileExt ?? '') ? 'image/jpeg' :
+                            fileExt === 'png' ? 'image/png' :
+                            fileExt === 'gif' ? 'image/gif' :
+                            fileExt === 'webp' ? 'image/webp' :
+                            fileExt === 'mp4' ? 'video/mp4' :
+                            fileExt === 'webm' ? 'video/webm' :
+                            fileExt === 'mkv' ? 'video/x-matroska' :
+                            fileExt === 'mp3' ? 'audio/mpeg' :
+                            fileExt === 'wav' ? 'audio/wav' :
+                            fileExt === 'zip' ? 'application/zip' :
+                            undefined;
+
+                        return {
+                            id: row.message_id,
+                            name: row.name,
+                            size: row.size,
+                            sizeStr: formatBytes(row.size),
+                            mime_type: mimeType,
+                            file_ext: fileExt,
+                            created_at: row.created_at ?? undefined,
+                            type: 'file' as const,
+                            folder_id: activeFolderId,
+                            sync_status: row.sync_status,
+                            local_status: row.local_status,
+                            is_pinned: row.is_pinned,
+                        };
+                    });
                     if (cachedFiles.length > 0) setFolderNavigationSnapshot(activeFolderId, cachedFiles, Date.now() - 6 * 60_000);
                 } catch (cacheError) {
                     console.warn('TCloud local index load failed', cacheError);
@@ -557,26 +600,63 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     }
                     flush();
                     const finalFiles = Array.from(accumulatedFiles.values());
-                    // An authoritative empty listing should clear stale cache; a failed
-                    // request, handled below, preserves the last known local snapshot.
-                    queryClient.setQueryData<TelegramFile[]>(['files', activeFolderId], (current) =>
-                        sameFileSnapshot(current, finalFiles) ? current : finalFiles);
-                    setFolderNavigationSnapshot(activeFolderId, finalFiles);
-                    void upsertIndexedFiles(activeFolderId, finalFiles
-                        .filter((file) => file.type !== 'folder')
-                        .map((file) => {
-                            let indexedCreatedAt: string | null = null;
-                            if (file.created_at) {
-                                const numeric = Number(file.created_at);
-                                if (Number.isFinite(numeric) && numeric > 0) indexedCreatedAt = String(numeric < 10_000_000_000 ? numeric : Math.floor(numeric / 1000));
-                                else {
-                                    const parsed = Date.parse(file.created_at.replace(/ UTC$/i, 'Z'));
-                                    if (!Number.isNaN(parsed)) indexedCreatedAt = String(Math.floor(parsed / 1000));
+
+                    const currentSnapshot =
+                        queryClient.getQueryData<TelegramFile[]>(['files', activeFolderId]) ?? [];
+
+                    const remoteChanged =
+                        !sameFileSnapshot(currentSnapshot, finalFiles);
+
+                    queryClient.setQueryData<TelegramFile[]>(
+                        ['files', activeFolderId],
+                        remoteChanged ? finalFiles : currentSnapshot
+                    );
+
+                    if (remoteChanged) {
+                        setFolderNavigationSnapshot(activeFolderId, finalFiles);
+                    }
+
+                        void upsertIndexedFiles(activeFolderId, finalFiles
+                            .filter((file) => file.type !== 'folder' && file.name.trim().length > 0)
+                            .map((file) => {
+                                let indexedCreatedAt: string | null = null;
+
+                                if (file.created_at) {
+                                    const numeric = Number(file.created_at);
+
+                                    if (Number.isFinite(numeric) && numeric > 0) {
+                                        indexedCreatedAt = String(
+                                            numeric < 10_000_000_000
+                                                ? numeric
+                                                : Math.floor(numeric / 1000)
+                                        );
+                                    } else {
+                                        const parsed = Date.parse(
+                                            file.created_at.replace(/ UTC$/i, 'Z')
+                                        );
+
+                                        if (!Number.isNaN(parsed)) {
+                                            indexedCreatedAt =
+                                                String(Math.floor(parsed / 1000));
+                                        }
+                                    }
                                 }
-                            }
-                            return { message_id: file.id, name: file.name, size: file.size, created_at: indexedCreatedAt };
-                        }))
-                        .catch((indexError) => console.warn('Local index update failed', indexError));
+
+                                return {
+                                    message_id: file.id,
+                                    name: file.name,
+                                    size: file.size,
+                                    mime_type: file.mime_type ?? null,
+                                    created_at: indexedCreatedAt
+                                };
+                            }))
+                            .catch((indexError) =>
+                                console.warn(
+                                    'Local index update failed',
+                                    indexError
+                                )
+                            );
+
                     return finalFiles;
                 } catch (remoteError) {
                     if (preserveCachedOnError) {
@@ -805,7 +885,20 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         if (normalizedSearchTerm.length > 0) return collectionSourceFiles;
         if (rootView === 'recent') {
             return [...collectionSourceFiles]
-                .filter((file) => file.type !== 'folder')
+                .filter((file) => {
+                    if (file.type === 'folder') return false;
+
+                    const name = (file.name || '').trim();
+
+                    // Arquivos usados apenas pelos testes internos do TCloud.
+                    if (isTCloudInternalTestFile(name)) return false;
+
+                    // Cópias históricas geradas pelo mecanismo antigo de conflitos.
+                    // Continuam disponíveis em Mensagens Salvas, mas não poluem Recentes.
+                    if (/conflito deste computador/i.test(name)) return false;
+
+                    return true;
+                })
                 .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
                 .slice(0, 250);
         }
@@ -932,27 +1025,53 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             || activeFilterCount > 0
         );
 
-    const dashboardRecentFiles = useMemo(() =>
-        [...visibleAllFiles]
-            .filter((file) => file.type !== 'folder')
+        function isTCloudInternalTestFile(name: string): boolean {
+        const normalized = (name || '').trim().toLowerCase();
+
+        return (
+            normalized.startsWith('benchmark-tcloud-') ||
+            normalized.startsWith('benchmark8-tcloud-') ||
+            normalized.startsWith('final-sync-test-') ||
+            normalized.startsWith('teste-tcloud-novo') ||
+
+            // Cópias históricas criadas pela antiga política automática
+            // "keep_both". Elas continuam acessíveis em Mensagens Salvas,
+            // mas não devem dominar Início/Recentes.
+            normalized.includes('conflito deste computador') ||
+            normalized.includes('conflito_deste_computador')
+        );
+    }
+
+    const dashboardCleanFiles = useMemo(
+        () =>
+            visibleAllFiles.filter(
+                (file) =>
+                    file.type === 'folder' ||
+                    !isTCloudInternalTestFile(file.name)
+            ),
+        [visibleAllFiles],
+    );
+const dashboardRecentFiles = useMemo(() =>
+        [...dashboardCleanFiles]
+            .filter((file) => file.type !== 'folder' && file.name.trim().length > 0)
             .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
             .slice(0, 6),
-        [visibleAllFiles]
+        [dashboardCleanFiles]
     );
 
     const dashboardFavoriteFiles = useMemo(() => {
         const favorites = new Set(favoriteIds);
-        return visibleAllFiles
+        return dashboardCleanFiles
             .filter((file) => file.type !== 'folder' && favorites.has(favoriteKey(file.id, file.folder_id)))
             .slice(0, 5);
-    }, [visibleAllFiles, favoriteIds]);
+    }, [dashboardCleanFiles, favoriteIds]);
 
     const dashboardMainFiles = useMemo(() =>
-        [...visibleAllFiles]
-            .filter((file) => file.type !== 'folder')
+        [...dashboardCleanFiles]
+            .filter((file) => file.type !== 'folder' && file.name.trim().length > 0)
             .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
             .slice(0, 12),
-        [visibleAllFiles]
+        [dashboardCleanFiles]
     );
 
     const { data: explorerConnection } = useQuery({
@@ -990,7 +1109,10 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const { data: bandwidth } = useQuery({
         queryKey: ['bandwidth'],
         queryFn: () => invoke<BandwidthStats>('cmd_get_bandwidth'),
-        refetchInterval: 15_000,
+        refetchInterval: () => {
+            if (syncingCount > 0) return 5_000;
+            return 60_000;
+        },
         refetchIntervalInBackground: false,
         enabled: !!store
     });
@@ -1112,7 +1234,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         if (selectedIds.length === 0) return;
         const selected = displayedFiles.filter((file) => selectedIdSet.has(file.id));
         const foldersToDelete = selected.filter((file) => file.type === 'folder');
-        const filesToDelete = selected.filter((file) => file.type !== 'folder');
+        const filesToDelete = selected.filter((file) => file.type !== 'folder' && file.name.trim().length > 0);
         if (filesToDelete.length > 0) await handleBulkDelete();
         for (const folder of foldersToDelete) {
             await handleFolderDelete(folder.id, folder.name);
@@ -1249,7 +1371,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         const runLocalSearch = async () => {
             setIsSearching(true);
             try {
-                localHits = await searchIndexedContent(remoteTerm).catch(() => []);
+                localHits = activeFolderId === null ? await searchIndexedContent(remoteTerm).catch(() => []) : [];
                 if (cancelled || searchRequestSeqRef.current !== requestSeq) return;
                 setSearchResults(mergeResults(latestRemoteResults));
             } finally {
@@ -1266,6 +1388,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 return;
             }
             try {
+                if (activeFolderId !== null) { latestRemoteResults = []; setSearchResults(mergeResults([])); return; }
                 const remoteResults = await handleGlobalSearch(remoteTerm);
                 if (cancelled || searchRequestSeqRef.current !== requestSeq) return;
                 latestRemoteResults = remoteResults;
@@ -1285,54 +1408,10 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             if (localTimer !== null) window.clearTimeout(localTimer);
             if (remoteTimer !== null) window.clearTimeout(remoteTimer);
         };
-    }, [advancedSearch.plain, handleGlobalSearch, trashIds, visibleAllFiles]);
+    }, [advancedSearch.plain, handleGlobalSearch, trashIds, visibleAllFiles, activeFolderId]);
 
 
 
-
-    useEffect(() => {
-        if (!isConnected) return;
-        let running = false;
-        const runDueBackups = async () => {
-            if (running) return;
-            if (document.visibilityState === 'visible' && !isTCloudUiBackgroundReady(1200)) return;
-            running = true;
-            try {
-                const backups = await listBackups();
-                const now = Math.floor(Date.now() / 1000);
-                for (const backup of backups.filter((item) => item.enabled)) {
-                    const due = !backup.last_run_at || now - backup.last_run_at >= backup.interval_minutes * 60;
-                    if (!due) continue;
-                    const paths = await listBackupFiles(backup.id);
-                    for (const path of paths) {
-                        const transferId = `backup-${backup.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-                        try {
-                            await invoke('cmd_upload_file', {
-                                path,
-                                folderId: backup.target_folder_id,
-                                transferId,
-                                protectionMode: settings.encryptionDefaultMode === 'vault' ? 'vault' : 'standard',
-                                promptToken: null,
-                                protectMetadata: false,
-                            });
-                            await markBackupFile(backup.id, path);
-                        } catch (error) {
-                            console.warn('Backup upload failed', path, error);
-                        }
-                    }
-                    await markBackupRun(backup.id);
-                    queryClient.invalidateQueries({ queryKey: ['files', backup.target_folder_id] });
-                }
-            } catch (error) {
-                console.warn('Automatic backup check failed', error);
-            } finally {
-                running = false;
-            }
-        };
-        const timer = window.setInterval(() => void runDueBackups(), 60_000);
-        void runDueBackups();
-        return () => window.clearInterval(timer);
-    }, [isConnected, queryClient, settings.encryptionDefaultMode]);
 
     const lastClickedIndexRef = useRef<number>(-1);
 
@@ -1389,15 +1468,35 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const submitInlineEditor = useCallback(async () => {
         if (!inlineEditor || inlineEditorBusy) return;
-        const newName = inlineEditor.value.trim();
-        if (!newName) return;
+        const requestedName = inlineEditor.value.trim();
+        const newName = requestedName.replace(/[. ]+$/g, '');
+
+        if (!newName) {
+            toast.error('Digite um nome v?lido.');
+            return;
+        }
+
+        if (requestedName !== newName) {
+            toast.info('Ponto ou espa?o no fim do nome foi removido para compatibilidade com o Windows.');
+            setInlineEditor(current =>
+                current ? { ...current, value: newName } : current
+            );
+        }
         setInlineEditorBusy(true);
         try {
             if (inlineEditor.mode === 'create') {
                 await createFolderInCurrentContext(newName);
             } else if (inlineEditor.target.type === 'folder') {
                 await handleFolderRename(inlineEditor.target.id, newName);
-                queryClient.invalidateQueries({ queryKey: ['folders'] });
+
+                await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ['folders'] }),
+                    queryClient.invalidateQueries({ queryKey: ['tcloud-forum-tree'] }),
+                ]);
+
+                await queryClient.refetchQueries({
+                    queryKey: ['tcloud-forum-tree']
+                });
             } else {
                 const folderId = inlineEditor.target.folder_id ?? activeFolderId;
                 await invoke('cmd_rename_file', {
@@ -1450,7 +1549,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const captureClipboardSelection = useCallback((mode: ExplorerClipboardMode) => {
         const selected = displayedFiles.filter((file) => selectedIdSet.has(file.id));
-        const filesOnly = selected.filter((file) => file.type !== 'folder');
+        const filesOnly = selected.filter((file) => file.type !== 'folder' && file.name.trim().length > 0);
         const foldersSelected = selected.length - filesOnly.length;
         if (filesOnly.length === 0) {
             if (foldersSelected > 0) toast.info('Copiar/recortar pastas completas será habilitado na próxima etapa. Para mover uma pasta agora, use Mover.');
@@ -1529,32 +1628,45 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const handlePreview = (file: TelegramFile, orderedFiles?: TelegramFile[]) => {
         const contextFiles = (orderedFiles || displayedFiles).filter((f) => f.type !== 'folder');
-        const contextIndex = contextFiles.findIndex((f) => f.id === file.id);
+
+        // 14.21L: sempre resolver o objeto mais atual pelo ID.
+        const currentFile =
+            contextFiles.find((f) => f.id === file.id) ??
+            displayedFiles.find((f) => f.id === file.id) ??
+            file;
+
+        const contextIndex = contextFiles.findIndex((f) => f.id === currentFile.id);
 
         setPreviewContextFiles(contextFiles);
         setPreviewContextIndex(contextIndex);
 
-        const isMedia = isMediaFile(file.name);
-        const isPdf = isPdfFile(file.name);
-        const isArchive = isArchiveFile(file.name);
+        const currentName = (currentFile.name ?? '').trim();
+        const mediaExt = (currentName.split('.').pop() ?? '').trim().toLowerCase();
+
+        const isMedia =
+            isMediaFile(currentName) ||
+            ['mp4','webm','mkv','mov','avi','ogg','mp3','wav','aac','flac','m4a','opus'].includes(mediaExt);
+
+        const isPdf = isPdfFile(currentName);
+        const isArchive = isArchiveFile(currentName);
 
         if (isArchive) {
-            setArchiveViewFile(file);
+            setArchiveViewFile(currentFile);
             setPreviewFile(null);
             setPlayingFile(null);
             setPdfFile(null);
         } else if (isMedia) {
-            setPlayingFile(file);
+            setPlayingFile(currentFile);
             setPreviewFile(null);
             setPdfFile(null);
             setArchiveViewFile(null);
         } else if (isPdf) {
-            setPdfFile(file);
+            setPdfFile(currentFile);
             setPreviewFile(null);
             setPlayingFile(null);
             setArchiveViewFile(null);
         } else {
-            setPreviewFile(file);
+            setPreviewFile(currentFile);
             setPlayingFile(null);
             setPdfFile(null);
             setArchiveViewFile(null);
@@ -1607,7 +1719,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         setPreviewContextIndex(nextIndex);
 
-        const isMedia = isMediaFile(nextFile.name);
+        const mediaExt = (nextFile.name.split('.').pop() ?? '').trim().toLowerCase();
+
+        const isMedia =
+            isMediaFile(nextFile.name) ||
+            ['mp4','webm','mkv','mov','avi','ogg','mp3','wav','aac','flac','m4a','opus'].includes(mediaExt);
         const isPdf = isPdfFile(nextFile.name);
         const isArchive = isArchiveFile(nextFile.name);
 
@@ -1835,6 +1951,44 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         return special ? [root, { label: special }] : [root];
     }, [selectedForum, activeFolderId, activeForumParent, activeForumTopic, rootView, folders, setActiveFolderId]);
 
+    const handleNavigateUp = useCallback(() => {
+        if (activeFolderId !== null) {
+            if (activeForumParent) {
+                setActiveFolderId(null);
+                setRootView('dashboard');
+                setSelectedForum(activeForumParent);
+                return;
+            }
+
+            setActiveFolderId(null);
+            setSelectedForum(null);
+            setRootView('dashboard');
+            return;
+        }
+
+        if (selectedForum) {
+            setSelectedForum(null);
+            setRootView('dashboard');
+            return;
+        }
+
+        if (rootView !== 'dashboard') {
+            setSelectedForum(null);
+            setActiveFolderId(null);
+            setRootView('dashboard');
+        }
+    }, [
+        activeFolderId,
+        activeForumParent,
+        selectedForum,
+        rootView,
+        setActiveFolderId,
+    ]);
+
+    const canNavigateUp =
+        activeFolderId !== null ||
+        selectedForum !== null ||
+        rootView !== 'dashboard';
     const currentFolderName = selectedForum && activeFolderId === null
         ? selectedForum.name
         : activeFolderId === null
@@ -1854,17 +2008,36 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const computerConnected = Boolean(explorerConnection?.provider_connected);
     const homeSyncCount = Math.max(syncingCount, isSyncing ? 1 : 0);
+
+    const selectedStatusSize = useMemo(() => {
+        if (selectedIds.length === 0) return 0;
+
+        return displayedFiles.reduce((total, file) => {
+            if (!selectedIdSet.has(file.id) || file.type === 'folder') {
+                return total;
+            }
+
+            const size = Number(file.size);
+
+            return total + (
+                Number.isFinite(size) && size > 0
+                    ? size
+                    : 0
+            );
+        }, 0);
+    }, [displayedFiles, selectedIdSet, selectedIds.length]);
+
     const homeHealth = !isConnected
-        ? { tone: 'offline', title: 'Sem conexão com a nuvem', detail: 'O TCloud vai continuar tentando quando a internet voltar.' }
+        ? { tone: 'offline', title: 'Sem conexÃ£o com a nuvem', detail: 'O TCloud vai continuar tentando quando a internet voltar.' }
         : explorerConnection === undefined
-            ? { tone: 'busy', title: 'Verificando este computador', detail: 'Confirmando a conexão com o Explorador do Windows.' }
+            ? { tone: 'busy', title: 'Verificando este computador', detail: 'Confirmando a conexÃ£o com o Explorador do Windows.' }
             : !computerConnected
                 ? { tone: 'busy', title: 'Conectando ao Explorer', detail: 'A reconexão é automática. Você pode continuar usando o TCloud.' }
                 : problemCount > 0
                     ? { tone: 'danger', title: `${problemCount} ${problemCount === 1 ? 'item precisa' : 'itens precisam'} de atenção`, detail: 'O TCloud já tentou resolver sozinho. Abra Problemas para revisar.' }
                     : homeSyncCount > 0
                         ? { tone: 'busy', title: 'Sincronizando seus arquivos', detail: `${homeSyncCount} ${homeSyncCount === 1 ? 'item está' : 'itens estão'} sendo atualizado${homeSyncCount === 1 ? '' : 's'} em segundo plano.` }
-                        : { tone: 'ok', title: 'Tudo atualizado', detail: 'Seus arquivos estão prontos no TCloud e no Explorer.' };
+                        : { tone: 'ok', title: 'Tudo atualizado', detail: 'Seus arquivos estÃ£o prontos no TCloud e no Explorer.' };
 
     const previewNeighbors = previewNeighborFiles();
 
@@ -1986,7 +2159,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             />
 
             <Suspense fallback={<LazyOverlayFallback />}>
-            <AnimatePresence>
                 {showMoveModal && (
                     <MoveToFolderModal
                         folders={folders}
@@ -2053,7 +2225,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         key="remote-upload-modal"
                     />
                 )}
-            </AnimatePresence>
             </Suspense>
 
             <Sidebar
@@ -2075,7 +2246,18 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     setRootView(view);
                 }}
                 onDelete={handleFolderDelete}
-                onRename={(id, name) => setRenameFolder({ id, name })}
+                onRename={async (id, name) => {
+                    await handleFolderRename(id, name);
+
+                    await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ['folders'] }),
+                        queryClient.invalidateQueries({ queryKey: ['tcloud-forum-tree'] }),
+                    ]);
+
+                    await queryClient.refetchQueries({
+                        queryKey: ['tcloud-forum-tree']
+                    });
+                }}
                 onToggleVisibility={async (id, _name, isPublic) => {
                     try {
                         await handleFolderToggleVisibility(id, !isPublic);
@@ -2104,6 +2286,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onOpenSettings={() => setShowSettings(true)}
                 onOpenForums={() => setShowForumManager(true)}
                 onOpenAdvanced={() => { setAdvancedInitialTab('index'); setShowAdvancedCenter(true); }}
+                onOpenDuplicates={() => { setAdvancedInitialTab('duplicates'); setShowAdvancedCenter(true); }}
                 problemCount={problemCount}
                 syncingCount={syncingCount}
                 onOpenForum={(forum) => {
@@ -2138,8 +2321,12 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onNavigateRoot={() => { setActiveFolderId(null); setSelectedForum(null); setRootView('dashboard'); }}
                     onBack={handleNavigationBack}
                     onForward={handleNavigationForward}
+
+                    onUp={handleNavigateUp}
                     canGoBack={navigationIndex > 0}
                     canGoForward={navigationIndex < navigationHistoryRef.current.length - 1}
+
+                    canGoUp={canNavigateUp}
                     isConnected={isConnected}
                     isSyncing={isSyncing}
                     onSync={handleSyncFolders}
@@ -2444,7 +2631,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     }}
                     onVersion={async (file) => {
                         await invoke('tcloud_pro_version_add', { messageId: file.id, folderId: file.folder_id ?? activeFolderId, name: file.name, size: file.size, note: 'Snapshot pelo menu de contexto' });
-                        toast.success('Versão registrada.');
+                        toast.success('VersÃ£o registrada.');
                     }}
                     onBulkDownload={handleBulkDownload}
                     onBulkDelete={handleBulkDelete}
@@ -2461,6 +2648,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 {!showUtilityWorkspace && !showHomeDashboard && <ExplorerStatusBar
                     itemCount={displayedFiles.length}
                     selectedCount={selectedIds.length}
+
+                    selectedSize={selectedStatusSize}
                     isConnected={isConnected}
                     computerConnected={Boolean(explorerConnection?.provider_connected)}
                     isSyncing={isSyncing}
@@ -2567,7 +2756,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         onShare={() => setShareFile(detailFile)}
                         onVersion={async () => {
                             await invoke('tcloud_pro_version_add', { messageId: detailFile.id, folderId: detailFile.folder_id ?? activeFolderId, name: detailFile.name, size: detailFile.size, note: 'Snapshot pelo painel de detalhes' });
-                            toast.success('Versão registrada.');
+                            toast.success('VersÃ£o registrada.');
                         }}
                         onOffline={async () => {
                             try {
@@ -2616,17 +2805,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onClose={() => setShareFile(null)}
                 />
             )}
-
-            {renameFolder && (
-                <RenameFolderModal
-                    folderId={renameFolder.id}
-                    currentName={renameFolder.name}
-                    onRename={handleFolderRename}
-                    onClose={() => setRenameFolder(null)}
-                />
-            )}
-
-            </Suspense>
+</Suspense>
 
             {/* Bulk Share Results Modal */}
             {bulkShareLinks && (

@@ -4,6 +4,7 @@ import type { ExplorerViewMode } from '../../../context/SettingsContext';
 interface ExplorerStatusBarProps {
   itemCount: number;
   selectedCount: number;
+  selectedSize?: number;
   isConnected: boolean;
   computerConnected: boolean;
   isSyncing: boolean;
@@ -26,9 +27,26 @@ const VIEW_LABELS: Record<ExplorerViewMode, string> = {
   gallery: 'Galeria',
 };
 
+
+function formatStatusBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+
+  const value = bytes / Math.pow(1024, index);
+
+  return `${new Intl.NumberFormat('pt-BR', {
+    maximumFractionDigits: index === 0 ? 0 : 1,
+  }).format(value)} ${units[index]}`;
+}
 export function ExplorerStatusBar({
   itemCount,
   selectedCount,
+  selectedSize = 0,
   isConnected,
   computerConnected,
   isSyncing,
@@ -60,6 +78,11 @@ export function ExplorerStatusBar({
       <div className="tcloud-explorer-status-left">
         <span>{itemCount} {itemCount === 1 ? 'item' : 'itens'}</span>
         {selectedCount > 0 && <span>{selectedCount} selecionado{selectedCount === 1 ? '' : 's'}</span>}
+        {selectedCount > 0 && selectedSize > 0 && (
+          <span title="Tamanho dos arquivos selecionados">
+            {formatStatusBytes(selectedSize)}
+          </span>
+        )}
       </div>
       <button
         type="button"

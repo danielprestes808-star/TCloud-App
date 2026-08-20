@@ -24,9 +24,6 @@ export function ForumOverview({
           </div>
           <p>{forum.topics.length} {forum.topics.length === 1 ? 'subpasta' : 'subpastas'} aqui.</p>
         </div>
-        <button type="button" className="is-primary" onClick={onCreateFolder}>
-          <Plus className="h-4 w-4" /> Nova pasta
-        </button>
       </header>
 
       {forum.topics.length === 0 ? (

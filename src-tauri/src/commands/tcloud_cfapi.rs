@@ -100,6 +100,7 @@ struct CfapiFileIdentity {
 #[derive(Debug)]
 struct IndexedFile {
     id: i64,
+    #[allow(dead_code)]
     name: String,
     size: i64,
     chat_key: i64,
@@ -201,6 +202,65 @@ fn notify_shell_directory_changed(path: &Path) {
 
 #[cfg(not(target_os = "windows"))]
 fn notify_shell_directory_changed(_path: &Path) {}
+
+#[cfg(target_os = "windows")]
+fn notify_shell_visual_refresh(path: &Path) {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+
+    // 14.22A:
+    // O Sync Root pode continuar funcional enquanto o Explorer mant?m
+    // ?cone/associa??o visual em cache. Atualizamos o item e as associa??es
+    // sem desmontar, cancelar registro ou tocar nos placeholders.
+    const SHCNE_UPDATEDIR: i32 = 0x0000_1000;
+    const SHCNE_UPDATEITEM: i32 = 0x0000_2000;
+    const SHCNE_ASSOCCHANGED: i32 = 0x0800_0000;
+
+    const SHCNF_IDLIST: u32 = 0x0000;
+    const SHCNF_PATHW: u32 = 0x0005;
+    const SHCNF_FLUSHNOWAIT: u32 = 0x2000;
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn SHChangeNotify(
+            event_id: i32,
+            flags: u32,
+            item1: *const c_void,
+            item2: *const c_void,
+        );
+    }
+
+    let mut wide = path.as_os_str().encode_wide().collect::<Vec<u16>>();
+    wide.push(0);
+
+    unsafe {
+        // Atualiza o diret?rio e o pr?prio item do Sync Root.
+        SHChangeNotify(
+            SHCNE_UPDATEDIR,
+            SHCNF_PATHW | SHCNF_FLUSHNOWAIT,
+            wide.as_ptr().cast::<c_void>(),
+            std::ptr::null(),
+        );
+
+        SHChangeNotify(
+            SHCNE_UPDATEITEM,
+            SHCNF_PATHW | SHCNF_FLUSHNOWAIT,
+            wide.as_ptr().cast::<c_void>(),
+            std::ptr::null(),
+        );
+
+        // ASSOCCHANGED deve ser enviado sem item/path.
+        SHChangeNotify(
+            SHCNE_ASSOCCHANGED,
+            SHCNF_IDLIST | SHCNF_FLUSHNOWAIT,
+            std::ptr::null(),
+            std::ptr::null(),
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn notify_shell_visual_refresh(_path: &Path) {}
 
 pub(crate) fn cfapi_root() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "Não foi possível localizar a pasta do usuário.".to_string())?;
@@ -550,8 +610,12 @@ fn reconcile_managed_folder_namespace(app: &AppHandle, conn: &sqlite::Connection
     // window may cache the directory view. Notify the Shell so the same tree is
     // visible without requiring F5. Refresh the root and first-level locations.
     notify_shell_directory_changed(&root);
-    for forum in ordered.iter().filter(|item| item.kind == "forum") {
-        notify_shell_directory_changed(&root.join(forum.relative_path.replace('/', "\\")));
+    for item in &ordered {
+        let target = root.join(item.relative_path.replace('/', "\\"));
+        if let Some(parent) = target.parent() {
+            notify_shell_directory_changed(parent);
+        }
+        notify_shell_directory_changed(&target);
     }
 
     let _ = app.emit("tcloud-explorer-folders-changed", serde_json::json!({
@@ -1833,7 +1897,41 @@ fn sync_root_missing_error(error: &str) -> bool {
 #[cfg(target_os = "windows")]
 fn ensure_provider_connection(app: &AppHandle, root: &Path, marker_exists: bool) -> Result<bool, String> {
     match platform::connect(root, app.clone()) {
-        Ok(()) => Ok(false),
+        Ok(()) => {
+            // 14.21D:
+            // O Sync Root pode continuar funcional enquanto o registro visual
+            // moderno do Explorer desaparece ou fica inconsistente.
+            //
+            // Não fazemos unregister aqui para preservar placeholders.
+            let shell = shell_integration::query(root);
+
+            if !shell.registered && shell.package_identity {
+                match shell_integration::register_full(root) {
+                    Ok(_) => {
+                        log::info!(
+                            "CFAPI self-heal: registro moderno do Explorer restaurado."
+                        );
+                        notify_shell_visual_refresh(root);
+                        return Ok(true);
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "CFAPI self-heal: registro visual do Explorer nao pode ser restaurado agora: {}",
+                            error
+                        );
+                    }
+                }
+            }
+
+            // Mesmo com o Sync Root registrado, o Explorer pode manter
+            // o ?cone antigo em cache. O refresh visual ? seguro e n?o
+            // altera registro, hidrata??o ou placeholders.
+            if shell.registered {
+                notify_shell_visual_refresh(root);
+            }
+
+            Ok(false)
+        },
         Err(first_error) if sync_root_missing_error(&first_error) => {
             log::warn!(
                 "CFAPI: o Windows perdeu o registro do Sync Root; iniciando autorreparo sem apagar arquivos: {}",
@@ -2392,6 +2490,7 @@ fn check_cancel(cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>) -> Resul
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 async fn download_cfapi_cache(
     db: &DbConnection,
     telegram: &crate::commands::TelegramState,
@@ -2590,6 +2689,195 @@ async fn transfer_cached_file(
     Ok(())
 }
 
+
+#[cfg(target_os = "windows")]
+async fn transfer_cfapi_range_from_telegram(
+    db:&DbConnection,
+    telegram:&crate::commands::TelegramState,
+    identity:&CfapiFileIdentity,
+    request:&platform::FetchRequest,
+    logical_size:i64,
+    cancel:&std::sync::Arc<std::sync::atomic::AtomicBool>,
+)->Result<(),String>{
+    const ALIGN:i64=4096;
+    const TELEGRAM_CHUNK:i32=512*1024;
+
+    check_cancel(cancel)?;
+
+    if logical_size<=0{
+        return Ok(());
+    }
+
+    let requested_start=request.required_offset.clamp(0,logical_size);
+
+    let requested_end=if request.required_length>0{
+        requested_start
+            .saturating_add(request.required_length)
+            .min(logical_size)
+    }else{
+        logical_size
+    };
+
+    let start=(requested_start/ALIGN)*ALIGN;
+
+    let mut end=requested_end;
+    if end<logical_size{
+        end=((end+ALIGN-1)/ALIGN)*ALIGN;
+    }
+    end=end.min(logical_size).max(start);
+
+    if end<=start{
+        return Ok(());
+    }
+
+    let client={
+        telegram.client.lock().await.clone()
+    }.ok_or_else(||
+        "Telegram nao esta conectado; nao e possivel hidratar o intervalo solicitado.".to_string()
+    )?;
+
+    let folder_id=if identity.chat_key<0{
+        let target=crate::commands::tcloud_forums::topic_target(
+            db,
+            Some(identity.chat_key)
+        )?.ok_or_else(||
+            format!("Topico TCloud {} nao encontrado.",identity.chat_key)
+        )?;
+
+        Some(target.chat_id)
+    }else if identity.chat_key==0{
+        None
+    }else{
+        Some(identity.chat_key)
+    };
+
+    let peer=crate::commands::utils::resolve_peer(
+        &client,
+        folder_id,
+        &telegram.peer_cache
+    ).await?;
+
+    let message_id=i32::try_from(identity.message_id)
+        .map_err(|_|"ID de mensagem Telegram invalido para hidratacao parcial.".to_string())?;
+
+    let message=client
+        .get_messages_by_id(&peer,&[message_id])
+        .await
+        .map_err(|e|format!("Falha ao localizar midia para hidratacao parcial: {e}"))?
+        .into_iter()
+        .flatten()
+        .next()
+        .ok_or_else(||"Mensagem do arquivo nao foi encontrada no Telegram.".to_string())?;
+
+    if message.text()=="TDENC2"{
+        return Err(
+            "Arquivo protegido deve usar o caminho de hidratacao criptografada.".into()
+        );
+    }
+
+    let media=message
+        .media()
+        .ok_or_else(||"A mensagem Telegram nao contem midia baixavel.".to_string())?;
+
+    // Grammers permite posicionar DownloadIter em um offset:
+    //
+    // 1. reduzimos o request para o alinhamento minimo de 4 KB;
+    // 2. pulamos a quantidade exata de blocos ate `start`;
+    // 3. restauramos 512 KB para throughput normal.
+    //
+    // Assim nenhum byte anterior ao range solicitado precisa ser baixado.
+    let skip_blocks=start/ALIGN;
+
+    let skip_blocks=i32::try_from(skip_blocks)
+        .map_err(|_|"Offset remoto grande demais para o iterador Telegram atual.".to_string())?;
+
+    let mut stream=client
+        .iter_download(&media)
+        .chunk_size(ALIGN as i32)
+        .skip_chunks(skip_blocks)
+        .chunk_size(TELEGRAM_CHUNK);
+
+    let mut offset=start;
+
+    platform::report_progress(
+        request,
+        logical_size,
+        offset.min(logical_size)
+    );
+
+    while offset<end{
+        check_cancel(cancel)?;
+
+        let bytes=stream
+            .next()
+            .await
+            .map_err(|e|format!("Download parcial Telegram falhou: {e}"))?
+            .ok_or_else(||format!(
+                "Telegram terminou o download parcial antes do esperado em {offset}/{end}."
+            ))?;
+
+        if bytes.is_empty(){
+            return Err(
+                "Telegram retornou bloco vazio durante hidratacao parcial.".into()
+            );
+        }
+
+        let remaining=(end-offset) as usize;
+        let take=remaining.min(bytes.len());
+
+        if take==0{
+            break;
+        }
+
+        let next_offset=offset.saturating_add(take as i64);
+        let is_file_end=next_offset>=logical_size;
+
+        if offset%ALIGN!=0{
+            return Err(
+                "Offset CFAPI parcial nao esta alinhado a 4 KB.".into()
+            );
+        }
+
+        if !is_file_end && (take as i64)%ALIGN!=0{
+            return Err(
+                "Bloco CFAPI parcial intermediario nao esta alinhado a 4 KB.".into()
+            );
+        }
+
+        platform::transfer_chunk(
+            request,
+            offset,
+            &bytes[..take]
+        )?;
+
+        offset=next_offset;
+
+        platform::report_progress(
+            request,
+            logical_size,
+            offset.min(logical_size)
+        );
+    }
+
+    if offset<end{
+        return Err(format!(
+            "Hidratacao parcial incompleta: {offset}/{end} bytes."
+        ));
+    }
+
+    log::debug!(
+        "CFAPI range Telegram concluido: arquivo={}, mensagem={}, range={}..{}, solicitado={}+{}.",
+        identity.file_id,
+        identity.message_id,
+        start,
+        end,
+        request.required_offset,
+        request.required_length
+    );
+
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 async fn service_fetch_data(
     app:AppHandle,
@@ -2635,17 +2923,58 @@ async fn service_fetch_data(
     }
 
     let logical_size=identity.size.max(request.file_size).max(0);
-    let path=if local_file.indexed {
-        match valid_cached_file(&db,local_file.id,logical_size).await?{
-            Some(path)=>path,
-            None=>download_cfapi_cache(&db,&telegram,&identity,&local_file,&request,&cancel).await?,
+
+    // Fast path: a complete cache can satisfy arbitrary CFAPI ranges locally.
+    if local_file.indexed {
+        if let Some(path)=valid_cached_file(&db,local_file.id,logical_size).await?{
+            let transfer=transfer_cached_file(
+                &path,
+                &request,
+                logical_size,
+                &cancel
+            ).await;
+
+            if transfer.is_ok(){
+                if let Some(local)=placeholder_path.as_ref(){
+                    if let Ok(conn)=db.lock(){
+                        store_local_fingerprint(
+                            &conn,
+                            identity.file_id,
+                            local
+                        );
+                    }
+                }
+            }
+
+            return transfer;
         }
-    }else{
-        download_cfapi_cache(&db,&telegram,&identity,&local_file,&request,&cancel).await?
-    };
-    let transfer=transfer_cached_file(&path,&request,logical_size,&cancel).await;
-    if !local_file.indexed { let _=tokio::fs::remove_file(&path).await; }
-    if transfer.is_ok(){if let Some(local)=placeholder_path.as_ref(){if let Ok(conn)=db.lock(){store_local_fingerprint(&conn,identity.file_id,local);}}}
+    }
+
+    // No complete cache: do NOT download the whole Telegram object first.
+    // Serve only the range Windows requested. This is especially important
+    // for video playback and seeking, where the player may ask independently
+    // for the MP4 header, moov atom and later media ranges.
+    let transfer=transfer_cfapi_range_from_telegram(
+        &db,
+        &telegram,
+        &identity,
+        &request,
+        logical_size,
+        &cancel
+    ).await;
+
+    if transfer.is_ok(){
+        if let Some(local)=placeholder_path.as_ref(){
+            if let Ok(conn)=db.lock(){
+                store_local_fingerprint(
+                    &conn,
+                    identity.file_id,
+                    local
+                );
+            }
+        }
+    }
+
     transfer
 }
 
@@ -2843,6 +3172,29 @@ async fn service_delete_completion(app:AppHandle,identity_bytes:Vec<u8>)->Result
                 return Ok(());
             }
         }
+        // SAFETY:
+        // A file-level CFAPI delete can be emitted while an entire managed
+        // directory temporarily disappears during namespace refresh, rename
+        // or placeholder reconciliation.
+        //
+        // A genuine single-file delete normally leaves its parent directory
+        // intact. If the parent disappeared too, treat this callback as
+        // ambiguous namespace churn instead of destructive user intent.
+        if let (Some(relative), Ok(root)) = (relative_path.as_deref(), cfapi_root()) {
+            let local_path = root.join(relative);
+
+            if let Some(parent) = local_path.parent() {
+                if !parent.exists() {
+                    log::warn!(
+                        "TCloud CFAPI: delete de arquivo {} ignorado porque a pasta pai também desapareceu: {}",
+                        identity.file_id,
+                        parent.display()
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
         // TCloud 12.5+: Explorer delete is non-destructive. Keep the Telegram
         // message intact and move only the local projection into TCloud Trash.
         crate::commands::tcloud_sync_maturity::move_file_to_trash(&db,identity.file_id)?;
@@ -3162,9 +3514,6 @@ fn start_pending_worker(app:AppHandle){
     tauri::async_runtime::spawn(async move{
         loop{
             let _=process_pending_ops_once(&app).await;
-            if let Some(db)=app.try_state::<DbConnection>(){
-                let _=crate::commands::tcloud_conflicts::auto_resolve_keep_both(&app,db.inner());
-            }
             // New Explorer transactions wake this loop immediately. The timeout
             // remains as a retry safety-net for operations under backoff.
             tokio::select!{

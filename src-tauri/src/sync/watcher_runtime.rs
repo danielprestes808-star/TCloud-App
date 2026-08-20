@@ -303,6 +303,16 @@ fn is_cloud_only(metadata: &std::fs::Metadata) -> bool {
 #[cfg(not(target_os = "windows"))]
 fn is_cloud_only(_metadata: &std::fs::Metadata) -> bool { false }
 
+#[cfg(target_os = "windows")]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x00000400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool { false }
+
 pub(crate) fn is_materialized_user_file(path:&Path)->bool{
     std::fs::metadata(path).map(|metadata|metadata.is_file() && !is_cloud_only(&metadata)).unwrap_or(false)
 }
@@ -362,8 +372,54 @@ fn persist_upload_job(db: &DbConnection, root: &Path, path: &Path) -> Result<(),
     let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
 
     let mut existing = lookup_file_for_path(&conn, root, path)?;
-    // Metadata activity on an online-only placeholder is never a user content edit.
-    if existing.is_some() && is_cloud_only(&metadata) { return Ok(()); }
+
+    /*
+     * Última barreira contra falso upload CFAPI.
+     *
+     * Um reparse point desconhecido nunca representa um arquivo novo criado
+     * pelo usuário. É uma projeção/place­holder do próprio provedor que ainda
+     * não foi associado ao SQLite. Deixar esse item seguir para a criação de
+     * tcloud_files + pending_upload produz loops como:
+     *
+     *   Photo (msg-5900).jpg -> pending_upload
+     *
+     * mesmo quando a identidade CFAPI aponta para uma mensagem Telegram já
+     * existente.
+     */
+    if existing.is_none() && is_reparse_point(&metadata) {
+        log::debug!(
+            "TCloud watcher: bloqueando novo upload para reparse point CFAPI não associado: {}",
+            path.display()
+        );
+        return Ok(());
+    }
+
+    // CFAPI upload-loop guard.
+    //
+    // Online-only placeholders are provider-owned state and never represent
+    // a new local upload.
+    if is_cloud_only(&metadata) {
+        log::debug!(
+            "TCloud watcher: ignorando placeholder cloud-only em {}",
+            path.display()
+        );
+        return Ok(());
+    }
+
+    // A hydrated CFAPI placeholder remains a Windows reparse point even when
+    // OFFLINE/RECALL flags disappear. If SQLite does not know this physical
+    // path yet, do NOT invent a second local tcloud_files row: this is the
+    // race that caused remote files to be downloaded and uploaded again.
+    //
+    // Known reparse points are deliberately allowed through because the user
+    // may have edited an already-associated hydrated TCloud file.
+    if existing.is_none() && is_reparse_point(&metadata) {
+        log::debug!(
+            "TCloud watcher: ignorando reparse point CFAPI ainda não associado em {}",
+            path.display()
+        );
+        return Ok(());
+    }
 
     let chat_key = crate::commands::tcloud_cfapi::chat_key_for_relative_path(&conn, rel_path)?;
     // Some Windows notify backends report rename as separate FROM/TO events. If
@@ -645,9 +701,26 @@ fn persist_remove_now(db: &DbConnection, root: &Path, path: &Path) -> Result<(),
     }
     drop(local);
 
-    if !subtree_ids.is_empty() || !local_ids.is_empty() {
-        // Local files that had not reached Telegram yet are simply cancelled;
-        // there is no remote object to recover from Trash.
+    if !subtree_ids.is_empty() {
+        // SAFETY: A directory removal event is ambiguous on Windows/CFAPI.
+        // Refreshes, placeholder reconciliation, renames and namespace rebuilds
+        // can make a whole directory disappear temporarily.
+        //
+        // Never convert a directory-level watcher event into bulk cloud Trash.
+        // Real CFAPI file deletes are handled individually by NOTIFY_DELETE,
+        // carrying the immutable file identity.
+        log::warn!(
+            "TCloud Explorer: remoção de pasta detectada em {} com {} arquivo(s) remoto(s). Exclusão em massa bloqueada por segurança.",
+            rel,
+            subtree_ids.len()
+        );
+
+        return Ok(());
+    }
+
+    if !local_ids.is_empty() {
+        // These files do not exist remotely yet. A genuine local removal may
+        // cancel their pending uploads without affecting Telegram files.
         let now=chrono::Utc::now().timestamp();
         for file_id in local_ids{
             let mut jobs=conn.prepare(
@@ -657,7 +730,24 @@ fn persist_remove_now(db: &DbConnection, root: &Path, path: &Path) -> Result<(),
             jobs.bind((1,now)).map_err(|e|e.to_string())?;
             jobs.bind((2,file_id)).map_err(|e|e.to_string())?;
             jobs.next().map_err(|e|e.to_string())?;
-            let mut file=conn.prepare("UPDATE tcloud_files SET sync_status='deleted',local_status='deleted',updated_at=?1 WHERE id=?2").map_err(|e|e.to_string())?;
+            let mut file=conn.prepare("UPDATE tcloud_files
+SET sync_status='deleted',
+    local_status='deleted',
+    updated_at=?1
+WHERE id=?2
+  AND NOT EXISTS (
+      SELECT 1
+      FROM tcloud_sync_jobs j
+      WHERE j.file_id=tcloud_files.id
+        AND j.operation IN ('upload','refresh')
+        AND (
+            j.status IN ('pending','running')
+            OR (
+                j.status='completed'
+                AND j.updated_at >= ?1 - 10
+            )
+        )
+  )").map_err(|e|e.to_string())?;
             file.bind((1,now)).map_err(|e|e.to_string())?;
             file.bind((2,file_id)).map_err(|e|e.to_string())?;
             file.next().map_err(|e|e.to_string())?;

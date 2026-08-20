@@ -111,23 +111,170 @@ pub fn tcloud_create_folder(db: State<'_, DbConnection>, name: String, parent_id
 }
 
 #[tauri::command]
-pub fn tcloud_enqueue_sync(db: State<'_, DbConnection>, file_id: i64, operation: String) -> Result<i64, String> {
+pub fn tcloud_enqueue_sync(
+    db: State<'_, DbConnection>,
+    file_id: i64,
+    operation: String,
+) -> Result<i64, String> {
     let operation = operation.trim().to_lowercase();
-    if !matches!(operation.as_str(), "upload" | "download" | "delete" | "refresh") {
-        return Err("Unsupported sync operation".into());
-    }
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+
+    let priority = match operation.as_str() {
+        "download" => 150,
+        "upload" => 130,
+        "delete" => 125,
+        "refresh" => 115,
+        _ => return Err("Unsupported sync operation".into()),
+    };
+
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+
     let now = chrono::Utc::now().timestamp();
-    let mut stmt = conn.prepare("INSERT INTO tcloud_sync_jobs(file_id,operation,status,created_at,updated_at) VALUES(?1,?2,'pending',?3,?4)").map_err(|e| e.to_string())?;
-    stmt.bind((1, file_id)).map_err(|e| e.to_string())?;
-    stmt.bind((2, operation.as_str())).map_err(|e| e.to_string())?;
-    stmt.bind((3, now)).map_err(|e| e.to_string())?;
-    stmt.bind((4, now)).map_err(|e| e.to_string())?;
+
+    if matches!(operation.as_str(), "upload" | "refresh") {
+        let mut existing = conn
+            .prepare(
+                "SELECT id
+                 FROM tcloud_sync_jobs
+                 WHERE file_id=?1
+                   AND operation IN ('upload','refresh')
+                   AND status IN ('pending','running','paused')
+                   AND COALESCE(cancel_requested,0)=0
+                 ORDER BY
+                   CASE status
+                     WHEN 'running' THEN 0
+                     WHEN 'pending' THEN 1
+                     ELSE 2
+                   END,
+                   priority DESC,
+                   id DESC
+                 LIMIT 1"
+            )
+            .map_err(|e| e.to_string())?;
+
+        existing
+            .bind((1, file_id))
+            .map_err(|e| e.to_string())?;
+
+        if let sqlite::State::Row =
+            existing.next().map_err(|e| e.to_string())?
+        {
+            let existing_id = existing
+                .read::<i64, _>(0)
+                .map_err(|e| e.to_string())?;
+
+            drop(existing);
+
+            let mut promote = conn
+                .prepare(
+                    "UPDATE tcloud_sync_jobs
+                     SET priority=MAX(COALESCE(priority,0),?1),
+                         next_attempt_at=NULL,
+                         updated_at=?2
+                     WHERE id=?3"
+                )
+                .map_err(|e| e.to_string())?;
+
+            promote
+                .bind((1, priority))
+                .map_err(|e| e.to_string())?;
+
+            promote
+                .bind((2, now))
+                .map_err(|e| e.to_string())?;
+
+            promote
+                .bind((3, existing_id))
+                .map_err(|e| e.to_string())?;
+
+            promote
+                .next()
+                .map_err(|e| e.to_string())?;
+
+            drop(promote);
+            drop(conn);
+
+            crate::sync::scheduler::signal_sync_work();
+
+            return Ok(existing_id);
+        }
+    }
+    else {
+        let mut existing = conn
+            .prepare(
+                "SELECT id
+                 FROM tcloud_sync_jobs
+                 WHERE file_id=?1
+                   AND operation=?2
+                   AND status IN ('pending','running','paused')
+                   AND COALESCE(cancel_requested,0)=0
+                 ORDER BY id DESC
+                 LIMIT 1"
+            )
+            .map_err(|e| e.to_string())?;
+
+        existing
+            .bind((1, file_id))
+            .map_err(|e| e.to_string())?;
+
+        existing
+            .bind((2, operation.as_str()))
+            .map_err(|e| e.to_string())?;
+
+        if let sqlite::State::Row =
+            existing.next().map_err(|e| e.to_string())?
+        {
+            let existing_id = existing
+                .read::<i64, _>(0)
+                .map_err(|e| e.to_string())?;
+
+            drop(existing);
+            drop(conn);
+
+            crate::sync::scheduler::signal_sync_work();
+
+            return Ok(existing_id);
+        }
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "INSERT INTO tcloud_sync_jobs(
+                file_id,
+                operation,
+                status,
+                created_at,
+                updated_at,
+                priority,
+                attempts,
+                next_attempt_at
+             )
+             VALUES(?1,?2,'pending',?3,?3,?4,0,NULL)"
+        )
+        .map_err(|e| e.to_string())?;
+
+    stmt.bind((1, file_id))
+        .map_err(|e| e.to_string())?;
+
+    stmt.bind((2, operation.as_str()))
+        .map_err(|e| e.to_string())?;
+
+    stmt.bind((3, now))
+        .map_err(|e| e.to_string())?;
+
+    stmt.bind((4, priority))
+        .map_err(|e| e.to_string())?;
+
     stmt.next().map_err(|e| e.to_string())?;
+
     let id = crate::db::last_insert_rowid(&conn)?;
+
     drop(stmt);
     drop(conn);
+
     crate::sync::scheduler::signal_sync_work();
+
     Ok(id)
 }
 

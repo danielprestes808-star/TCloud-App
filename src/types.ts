@@ -3,6 +3,7 @@ export interface TelegramFile {
     name: string;
     size: number;
     sizeStr: string; // Formatted size
+    mime_type?: string | null;
     created_at?: string;
     type?: 'folder' | 'file'; // implied icon_type
     folder_id?: number | null;

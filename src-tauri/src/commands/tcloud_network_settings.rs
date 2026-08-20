@@ -76,9 +76,12 @@ pub fn tcloud_set_network_settings(
     write_setting(&conn, "upload_limit_bps", &upload_limit_bps.to_string())?;
     write_setting(&conn, "download_limit_bps", &download_limit_bps.to_string())?;
 
-    if economy_mode {
-        write_setting(&conn, "max_concurrent_transfers", "1")?;
-    }
+    // 14.23: economia usa uma transfer?ncia; perfil normal usa os 8 workers.
+    write_setting(
+        &conn,
+        "max_concurrent_transfers",
+        if economy_mode { "1" } else { "8" },
+    )?;
 
     drop(conn);
     load_network_settings(db.inner())

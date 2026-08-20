@@ -2150,6 +2150,50 @@ async fn resolve_tcloud_content_peer(
     resolve_peer(client, folder_id, &state.peer_cache).await
 }
 
+
+async fn resolve_topic_top_message_id(
+    client: &grammers_client::Client,
+    target: &crate::commands::tcloud_forums::TopicTarget,
+) -> Option<i32> {
+    let peer = tl::enums::InputPeer::Channel(tl::types::InputPeerChannel {
+        channel_id: target.chat_id,
+        access_hash: target.access_hash,
+    });
+    let mut offset_date = 0;
+    let mut offset_id = 0;
+    let mut offset_topic = 0;
+
+    // Telegram forum messages are threaded under ForumTopic.top_message.
+    // A TDLib forumTopicId (used by mobile) and MTProto's top_message are not
+    // guaranteed to be interchangeable, so resolve the root before filtering.
+    for _ in 0..100 {
+        let result = client.invoke(&tl::functions::messages::GetForumTopics {
+            peer: peer.clone(),
+            q: None,
+            offset_date,
+            offset_id,
+            offset_topic,
+            limit: 100,
+        }).await.ok()?;
+        let page = tl::types::messages::ForumTopics::try_from(result).ok()?;
+        let mut next_offset: Option<(i32, i32, i32)> = None;
+        for topic in page.topics {
+            if let tl::enums::ForumTopic::Topic(value) = topic {
+                if value.id == target.topic_id {
+                    return Some(value.top_message);
+                }
+                next_offset = Some((value.date, value.top_message, value.id));
+            }
+        }
+        let Some((next_date, next_id, next_topic)) = next_offset else { break; };
+        if next_date == offset_date && next_id == offset_id && next_topic == offset_topic { break; }
+        offset_date = next_date;
+        offset_id = next_id;
+        offset_topic = next_topic;
+    }
+    None
+}
+
 #[tauri::command]
 pub async fn cmd_get_files(
     folder_id: Option<i64>,
@@ -2230,6 +2274,10 @@ pub async fn cmd_get_files(
     
     let topic_target = crate::commands::tcloud_forums::topic_target(&db_pool, folder_id)?;
     let peer = resolve_tcloud_content_peer(&client, folder_id, topic_target.as_ref(), state.inner()).await?;
+    let topic_top_message_id = match topic_target.as_ref() {
+        Some(target) => resolve_topic_top_message_id(&client, target).await,
+        None => None,
+    };
     let vault_key = crypto_state.get_current_wrapping_key().ok();
 
     let mut msgs = client.iter_messages(&peer);
@@ -2252,13 +2300,18 @@ pub async fn cmd_get_files(
         }
         last_msg_id = Some(current_msg_id);
 
+        // TEMP: diagnostico de mensagens antes do filtro de topico.
+
         if let Some(target)=topic_target.as_ref(){
+            let thread_root = topic_top_message_id.unwrap_or(target.topic_id);
             let belongs = match &msg.raw {
                 tl::enums::Message::Message(message) => match &message.reply_to {
                     Some(tl::enums::MessageReplyHeader::Header(header)) => {
-                        header.reply_to_top_id == Some(target.topic_id)
+                        header.reply_to_top_id == Some(thread_root)
+                            || header.reply_to_top_id == Some(target.topic_id)
                             || (header.reply_to_top_id.is_none()
-                                && header.reply_to_msg_id == Some(target.topic_id))
+                                && (header.reply_to_msg_id == Some(thread_root)
+                                    || header.reply_to_msg_id == Some(target.topic_id)))
                     }
                     _ => false,
                 },
@@ -2277,10 +2330,76 @@ pub async fn cmd_get_files(
                     // Prefer the message caption (set by rename via EditMessage) over the
                     // document's built-in filename attribute, so renames persist across refreshes.
                     let caption = msg.text();
-                    let display_name = if caption.is_empty() { doc_name.clone() } else { caption.to_string() };
-                    let m = d.mime_type().map(|s| s.to_string());
-                    // Extension always from the original document name for correct file-type icon
-                    let e = std::path::Path::new(&doc_name).extension().map(|os| os.to_str().unwrap_or("").to_string());
+
+                    let original_ext = std::path::Path::new(&doc_name)
+                        .extension()
+                        .and_then(|os| os.to_str())
+                        .filter(|ext| !ext.is_empty())
+                        .map(str::to_string);
+
+                    let mut display_name = if caption.is_empty() {
+                        doc_name.clone()
+                    } else {
+                        caption.to_string()
+                    };
+
+                    if std::path::Path::new(&display_name).extension().is_none() {
+                        if let Some(ext) = original_ext.as_deref() {
+                            display_name.push('.');
+                            display_name.push_str(ext);
+                        }
+                    }
+                    let mut m = d
+                        .mime_type()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string);
+
+                    // Telegram pode enviar video sem filename e MIME vazio.
+                    // No grammers 0.8.1, Video possui duracao e resolucao.
+                    let telegram_video =
+                        d.duration().is_some() && d.resolution().is_some();
+
+                    if m.is_none() && telegram_video {
+                        m = Some("video/mp4".to_string());
+                    }
+
+                    // 14.21K:
+                    // Alguns documentos recebidos diretamente pelo Telegram podem
+                    // chegar sem filename e sem legenda. Nao deixe o arquivo sem nome.
+                    let inferred_ext = original_ext.clone().or_else(|| {
+                        match m.as_deref().unwrap_or_default().to_ascii_lowercase().as_str() {
+                            "video/mp4" => Some("mp4".to_string()),
+                            "video/webm" => Some("webm".to_string()),
+                            "video/x-matroska" => Some("mkv".to_string()),
+                            "video/quicktime" => Some("mov".to_string()),
+                            "audio/mpeg" => Some("mp3".to_string()),
+                            "audio/wav" | "audio/x-wav" => Some("wav".to_string()),
+                            "audio/flac" => Some("flac".to_string()),
+                            "application/pdf" => Some("pdf".to_string()),
+                            "image/jpeg" => Some("jpg".to_string()),
+                            "image/png" => Some("png".to_string()),
+                            "image/webp" => Some("webp".to_string()),
+                            "image/gif" => Some("gif".to_string()),
+                            "application/zip" => Some("zip".to_string()),
+                            _ => None,
+                        }
+                    });
+
+                    if display_name.trim().is_empty() {
+                        display_name = match inferred_ext.as_deref() {
+                            Some(ext) => if telegram_video { format!("video_{}.{}", msg.id(), ext) } else { format!("arquivo_{}.{}", msg.id(), ext) },
+                            None => if telegram_video { format!("video_{}.mp4", msg.id()) } else { format!("arquivo_{}", msg.id()) },
+                        };
+                    } else if std::path::Path::new(&display_name).extension().is_none() {
+                        if let Some(ext) = inferred_ext.as_deref() {
+                            display_name.push('.');
+                            display_name.push_str(ext);
+                        }
+                    }
+
+
+                    let e = inferred_ext;
                     (display_name, declared_size, m, e, doc_name)
                 },
                 Media::Photo(_) => ("Photo.jpg".to_string(), declared_size, Some("image/jpeg".into()), Some("jpg".into()), "Photo.jpg".to_string()),
@@ -2462,10 +2581,27 @@ fn extract_search_files(msgs: &[tl::enums::Message]) -> Vec<FileMetadata> {
                         _ => None
                     }).unwrap_or("Unknown".to_string());
                     // Prefer the message caption over the built-in document filename
-                    let name = if m.message.is_empty() { doc_name.clone() } else { m.message.clone() };
+                    let ext = std::path::Path::new(&doc_name)
+                        .extension()
+                        .and_then(|os| os.to_str())
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string);
+
+                    let mut name = if m.message.is_empty() {
+                        doc_name.clone()
+                    } else {
+                        m.message.clone()
+                    };
+
+                    if std::path::Path::new(&name).extension().is_none() {
+                        if let Some(value) = ext.as_deref() {
+                            name.push('.');
+                            name.push_str(value);
+                        }
+                    }
                     let size = doc.size as u64;
                     let mime = doc.mime_type.clone();
-                    let ext = std::path::Path::new(&doc_name).extension().map(|os| os.to_str().unwrap_or("").to_string());
+                    
                     let folder_id = match &m.peer_id {
                         tl::enums::Peer::Channel(c) => Some(c.channel_id),
                         tl::enums::Peer::User(u) => Some(u.user_id),

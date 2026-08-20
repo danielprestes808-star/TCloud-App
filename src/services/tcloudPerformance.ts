@@ -10,12 +10,12 @@ export function getPerformanceProfile(): TCloudPerformanceProfile {
 
 export async function applyPerformanceProfile(profile: TCloudPerformanceProfile) {
   localStorage.setItem(KEY, profile);
-  const thumbnailConcurrency = profile === 'economy' ? 2 : profile === 'performance' ? 6 : 4;
+  const thumbnailConcurrency = profile === 'economy' ? 2 : profile === 'performance' ? 8 : 6;
   localStorage.setItem('tcloud:thumbnail-concurrency', String(thumbnailConcurrency));
   document.body.classList.add('tcloud-fluidity-mode');
   document.documentElement.dataset.tcloudPerformanceProfile = profile;
   window.dispatchEvent(new CustomEvent('tcloud-performance-profile-changed', { detail: { profile, thumbnailConcurrency } }));
-  await setTCloudTransferLimits(profile === 'economy' ? 1 : profile === 'performance' ? 4 : 2).catch(() => null);
+  await setTCloudTransferLimits(profile === 'economy' ? 2 : 4).catch(() => null);
   return profile;
 }
 
@@ -23,3 +23,5 @@ export function setAutoEconomyEnabled(enabled:boolean) {
   localStorage.setItem('tcloud:auto-economy', enabled ? 'true' : 'false');
 }
 export function getAutoEconomyEnabled() { return localStorage.getItem('tcloud:auto-economy') === 'true'; }
+
+

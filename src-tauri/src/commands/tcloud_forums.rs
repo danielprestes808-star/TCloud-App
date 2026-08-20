@@ -213,7 +213,7 @@ async fn sync_forum_topics_from_telegram(
     forum_id: i64,
     chat_id: i64,
     access_hash: i64,
-    forum_peer: &Peer,
+    forum_peer: Option<&Peer>,
 ) -> Result<usize, String> {
     let peer = input_peer(chat_id, access_hash);
     let mut offset_date = 0;
@@ -347,11 +347,20 @@ async fn sync_forum_topics_from_telegram(
         }
     }
 
-    {
+    // 13.0.16-HF1: known forum fallback. A forum that is already in SQLite
+    // can have new topics created by the mobile app even when iter_dialogs does
+    // not surface that forum in the same reconciliation pass. Reuse a cached
+    // peer when available, but never block topic discovery on the cache.
+    let resolved_peer = if let Some(peer) = forum_peer {
+        Some(peer.clone())
+    } else {
+        cache.read().await.get(&chat_id).cloned()
+    };
+    if let Some(resolved_peer) = resolved_peer {
         let mut write = cache.write().await;
-        write.insert(chat_id, forum_peer.clone());
+        write.insert(chat_id, resolved_peer.clone());
         for local_id in local_topic_ids {
-            write.insert(synthetic_folder_id(local_id), forum_peer.clone());
+            write.insert(synthetic_folder_id(local_id), resolved_peer.clone());
         }
     }
 
@@ -382,7 +391,7 @@ async fn sync_forum_catalog_from_telegram(
     }
 
     let now = chrono::Utc::now().timestamp();
-    let mut local_forums = Vec::<(i64, i64, i64, Peer)>::new();
+    let mut local_forums = Vec::<(i64, i64, i64, Option<Peer>)>::new();
     {
         let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
         for (chat_id, access_hash, title, peer) in discovered {
@@ -410,9 +419,29 @@ async fn sync_forum_catalog_from_telegram(
                     find.read::<i64, _>(0).map_err(|e| e.to_string())?,
                     chat_id,
                     access_hash,
-                    peer,
+                    Some(peer),
                 ));
             }
+        }
+    }
+
+    // 13.0.16-HF1: known forum fallback.
+    // Mobile folders are Telegram forum topics. The parent forum can already be
+    // known locally, so refresh every known forum even if iter_dialogs omitted it
+    // from this particular pass.
+    {
+        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut q = conn.prepare(
+            "SELECT id,telegram_chat_id,telegram_access_hash FROM tcloud_forums ORDER BY id"
+        ).map_err(|e| e.to_string())?;
+        while let sqlite::State::Row = q.next().map_err(|e| e.to_string())? {
+            let forum_id = q.read::<i64, _>(0).map_err(|e| e.to_string())?;
+            let chat_id = q.read::<i64, _>(1).map_err(|e| e.to_string())?;
+            let access_hash = q.read::<i64, _>(2).map_err(|e| e.to_string())?;
+            if access_hash == 0 || local_forums.iter().any(|(id, _, _, _)| *id == forum_id) {
+                continue;
+            }
+            local_forums.push((forum_id, chat_id, access_hash, None));
         }
     }
 
@@ -429,7 +458,7 @@ async fn sync_forum_catalog_from_telegram(
             *forum_id,
             *chat_id,
             *access_hash,
-            peer,
+            peer.as_ref(),
         ).await {
             Ok(_) => synced += 1,
             Err(error) => log::warn!(
@@ -442,6 +471,37 @@ async fn sync_forum_catalog_from_telegram(
 
     attach_topic_peer_aliases(db, cache).await?;
     Ok(synced)
+}
+
+// 13.0.16: keep the Telegram folder catalog alive even when the React window is
+// minimized to tray. The foreground UI still performs faster visible refreshes;
+// this slower worker is the background safety net for folders created on mobile.
+pub fn start_remote_forum_catalog_worker(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        loop {
+            let client = {
+                let state = app.state::<crate::commands::TelegramState>();
+                let client = state.client.lock().await.clone();
+                client
+            };
+            if let Some(client) = client {
+                let state = app.state::<crate::commands::TelegramState>();
+                let db = app.state::<DbConnection>();
+                match sync_forum_catalog_from_telegram(&client, db.inner(), &state.peer_cache).await {
+                    Ok(_) => {
+                        if let Err(error) = crate::commands::tcloud_cfapi::refresh_folder_namespace_now(app.clone()).await {
+                            log::warn!("TCloud Explorer: atualização de pastas em segundo plano foi adiada: {}", error);
+                            crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone());
+                        }
+                        let _ = app.emit("tcloud-folder-tree-changed", ());
+                    }
+                    Err(error) => log::debug!("TCloud: catálogo remoto em segundo plano adiado: {}", error),
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
 }
 
 async fn forum_is_accessible(
@@ -685,7 +745,17 @@ pub async fn tcloud_forum_ensure_default(
 )->Result<TCloudForum,String>{
     let client=state.client.lock().await.clone().ok_or_else(||"Telegram não conectado".to_string())?;
     let forum=default_forum(&client,&db,&state.peer_cache).await?;
-    crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app);
+    // 14.26: se o TCloud precisar criar/restaurar a pasta padr?o,
+    // projete-a imediatamente no Explorer.
+    if let Err(error) =
+        crate::commands::tcloud_cfapi::refresh_folder_namespace_now(app.clone()).await
+    {
+        log::warn!(
+            "TCloud Explorer: pasta padr?o atualizada, mas refresh imediato falhou: {}",
+            error
+        );
+        crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app);
+    }
     Ok(forum)
 }
 #[tauri::command]
@@ -700,7 +770,17 @@ pub async fn tcloud_forum_create(
     let client=state.client.lock().await.clone().ok_or_else(||"TCloud está sem conexão. Tente novamente quando a internet voltar.".to_string())?;
     let unique_name=unique_main_folder_name(&db,&name)?;
     let forum=create_forum(&client,&db,&state.peer_cache,&unique_name,make_default).await?;
-    crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone());
+    // 14.26: a pasta deve aparecer no Explorer assim que o Telegram
+    // confirmar a cria??o, sem esperar o debounce do reconciliador.
+    if let Err(error) =
+        crate::commands::tcloud_cfapi::refresh_folder_namespace_now(app.clone()).await
+    {
+        log::warn!(
+            "TCloud Explorer: pasta principal criada, mas atualiza??o local foi adiada: {}",
+            error
+        );
+        crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone());
+    }
     let _ = app.emit("tcloud-folder-tree-changed", ());
     log::info!("TCloud: pasta principal criada em {} ms", started.elapsed().as_millis());
     Ok(forum)
@@ -722,7 +802,15 @@ pub async fn tcloud_forum_list_tree(
     // sidebar and Explorer no longer depend on a stale local-only catalog.
     if let Some(client) = state.client.lock().await.clone() {
         match sync_forum_catalog_from_telegram(&client, &db, &state.peer_cache).await {
-            Ok(_) => crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone()),
+            Ok(_) => {
+                // 13.0.16: a pasta descoberta em outro dispositivo precisa chegar
+                // ao Explorer no mesmo ciclo em que entra no catálogo local.
+                if let Err(error) = crate::commands::tcloud_cfapi::refresh_folder_namespace_now(app.clone()).await {
+                    log::warn!("TCloud Explorer: catálogo remoto atualizado, mas a projeção imediata foi adiada: {}", error);
+                    crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone());
+                }
+                let _ = app.emit("tcloud-folder-tree-changed", ());
+            }
             Err(error) => log::warn!("TCloud: não foi possível atualizar todas as pastas do Telegram: {}", error),
         }
 
@@ -779,7 +867,17 @@ pub async fn tcloud_forum_create_topic(
     let started=std::time::Instant::now();
     let client=state.client.lock().await.clone().ok_or_else(||"Telegram não conectado".to_string())?;
     let folder=create_topic_internal(&client,&db,&state.peer_cache,&name,forum_id).await?;
-    crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone());
+    // 14.26: subpastas novas tamb?m entram no namespace do Explorer
+    // imediatamente. O agendador permanece apenas como fallback.
+    if let Err(error) =
+        crate::commands::tcloud_cfapi::refresh_folder_namespace_now(app.clone()).await
+    {
+        log::warn!(
+            "TCloud Explorer: subpasta criada, mas atualiza??o local foi adiada: {}",
+            error
+        );
+        crate::commands::tcloud_cfapi::schedule_folder_namespace_refresh(app.clone());
+    }
     let _ = app.emit("tcloud-folder-tree-changed", ());
     log::info!("TCloud: subpasta criada em {} ms", started.elapsed().as_millis());
     Ok(folder)

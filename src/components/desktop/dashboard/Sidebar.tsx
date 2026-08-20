@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
@@ -41,7 +41,7 @@ import {
     transferTCloudForumTopic,
     type TCloudForumTree,
 } from '../../../services/tcloudForums';
-import { getCfapiStatus, openCfapiRoot } from '../../../services/tcloudCompletion';
+import { finalizeCfapiExplorer, getCfapiStatus, openCfapiRoot } from '../../../services/tcloudCompletion';
 
 interface SidebarProps {
     folders: TelegramFolder[];
@@ -67,6 +67,7 @@ interface SidebarProps {
     onOpenSettings?: () => void;
     onOpenForums?: () => void;
     onOpenAdvanced?: () => void;
+    onOpenDuplicates?: () => void;
     onOpenForum?: (forum: TCloudForumTree) => void;
     problemCount?: number;
     syncingCount?: number;
@@ -179,6 +180,7 @@ export function Sidebar({
     onOpenSettings,
     onOpenForums,
     onOpenAdvanced,
+    onOpenDuplicates,
     onOpenForum,
     problemCount = 0,
     syncingCount = 0,
@@ -186,6 +188,11 @@ export function Sidebar({
     const { t } = useTranslation();
     const { settings, updateSetting } = useSettings();
     const queryClient = useQueryClient();
+
+    // Explorer self-heal:
+    // evita mais de uma tentativa simultânea de reconstruir o registro
+    // StorageProvider/SyncRoot do painel de navegação.
+    const explorerRepairInFlightRef = useRef(false);
     const { data: forumTree = [] } = useQuery({
         queryKey: ['tcloud-forum-tree'],
         queryFn: listTCloudForumTree,
@@ -222,6 +229,68 @@ export function Sidebar({
         staleTime: 15_000,
         enabled: isConnected,
     });
+
+    /*
+     * Autorrecuperação do ícone/Sync Root do Explorer.
+     *
+     * A raiz CFAPI pode continuar funcionando mesmo se o Windows perder
+     * apenas o registro StorageProvider usado para exibir o TCloud no
+     * painel esquerdo. Quando isso acontecer, refazemos somente a camada
+     * Shell. Nenhum placeholder, arquivo local ou objeto Telegram é apagado.
+     */
+    useEffect(() => {
+        if (!isConnected || !cfapiStatus?.registered) return;
+
+        const shellHealthy =
+            cfapiStatus.shell_registered &&
+            cfapiStatus.shell_pinning_enabled;
+
+        if (shellHealthy) {
+            explorerRepairInFlightRef.current = false;
+            return;
+        }
+
+        // A finalização moderna é segura quando a Package Identity existe.
+        // Sem identidade, deixamos o fluxo manual/fallback existente cuidar.
+        if (!cfapiStatus.package_identity) return;
+        if (explorerRepairInFlightRef.current) return;
+
+        explorerRepairInFlightRef.current = true;
+
+        void finalizeCfapiExplorer()
+            .then(async (next) => {
+                await queryClient.setQueryData(
+                    ['cfapi-status'],
+                    next
+                );
+
+                if (next.shell_registered) {
+                    console.info(
+                        'TCloud Explorer: registro visual restaurado automaticamente.'
+                    );
+                }
+            })
+            .catch((error) => {
+                console.warn(
+                    'TCloud Explorer: autorreparo do Shell adiado:',
+                    error
+                );
+            })
+            .finally(() => {
+                // Permite nova tentativa no próximo ciclo de status,
+                // caso o Windows ainda não estivesse pronto.
+                window.setTimeout(() => {
+                    explorerRepairInFlightRef.current = false;
+                }, 15_000);
+            });
+    }, [
+        cfapiStatus?.package_identity,
+        cfapiStatus?.registered,
+        cfapiStatus?.shell_pinning_enabled,
+        cfapiStatus?.shell_registered,
+        isConnected,
+        queryClient,
+    ]);
 
     const libraryFolders = useMemo(
         () => folders
@@ -390,6 +459,7 @@ Ela precisa estar vazia.`)) return;
                     <button title="Início" onClick={() => { setActiveFolderId(null); onRootViewChange('dashboard'); }}><Home className="h-4 w-4" /></button>
                     <button title="Abrir TCloud no Explorer" onClick={() => void openCfapiRoot()}><HardDrive className="h-4 w-4" /></button>
                     <button title="Pastas" onClick={() => onOpenForums?.()}><Folder className="h-4 w-4" /></button>
+                    <button title="Duplicados" onClick={() => onOpenDuplicates?.()}><Copy className="h-4 w-4" /></button>
                     <button title="Configurações" onClick={() => onOpenSettings?.()}><Settings className="h-4 w-4" /></button>
                 </div>
                 <div className="mt-auto flex flex-col items-center gap-1 border-t border-app-border-subtle p-2">
@@ -418,13 +488,13 @@ Ela precisa estar vazia.`)) return;
                     <NavItem icon={Home} label="Início" active={activeFolderId === null && rootView === 'dashboard'} onClick={() => { setActiveFolderId(null); onRootViewChange('dashboard'); }} />
                     <NavItem icon={Clock3} label="Recentes" active={activeFolderId === null && rootView === 'recent'} onClick={() => { setActiveFolderId(null); onRootViewChange('recent'); }} />
                     <NavItem icon={Star} label="Favoritos" active={activeFolderId === null && rootView === 'favorites'} onClick={() => { setActiveFolderId(null); onRootViewChange('favorites'); }} />
-                    <NavItem icon={Activity} label="Sincronização" active={activeFolderId === null && rootView === 'sync'} onClick={() => { setActiveFolderId(null); onRootViewChange('sync'); }} />
+
+                    {(syncingCount > 0 || rootView === 'sync') && <NavItem icon={Activity} label="Sincronização" badge={syncingCount} badgeTone="busy" active={activeFolderId === null && rootView === 'sync'} onClick={() => { setActiveFolderId(null); onRootViewChange('sync'); }} />}
                     {problemCount > 0 && <NavItem icon={CircleAlert} label="Precisa de atenção" badge={problemCount} badgeTone="danger" active={activeFolderId === null && rootView === 'problems'} onClick={() => { setActiveFolderId(null); onRootViewChange('problems'); }} />}
-                    <NavItem icon={Trash2} label="Lixeira" active={activeFolderId === null && rootView === 'trash'} onClick={() => { setActiveFolderId(null); onRootViewChange('trash'); }} />
                 </nav>
 
                 <section className="tcloud-explorer-section">
-                    <div className="tcloud-explorer-section-title"><span>Computador</span></div>
+                    <div className="tcloud-explorer-section-title"><span>Este computador</span></div>
                     <div className="tcloud-explorer-drive-root">
                         <span className="tcloud-explorer-tree-spacer" aria-hidden="true" />
                         <button type="button" className="tcloud-explorer-tree-main" onClick={() => void openCfapiRoot()} title="Abrir a pasta TCloud no Explorador do Windows">
@@ -439,9 +509,21 @@ Ela precisa estar vazia.`)) return;
                     {cfapiStatus && !cfapiStatus.provider_connected && (
                         <button type="button" className="tcloud-explorer-empty-row tcloud-explorer-connect-row" onClick={() => onOpenSettings?.()}>
                             <CloudDownload className="h-4 w-4" />
-                            <span>Ativar integração com o Windows</span>
+                            <span>Conectar ao Explorador do Windows</span>
                         </button>
                     )}
+                    <button
+                        type="button"
+                        className={`tcloud-explorer-folder-row ${activeFolderId === null && rootView === 'offline' ? 'is-active' : ''}`}
+                        onClick={() => {
+                            setActiveFolderId(null);
+                            onRootViewChange('offline');
+                        }}
+                        title="Arquivos disponíveis sem internet"
+                    >
+                        <CloudDownload className="h-4 w-4" />
+                        <span>Disponível offline</span>
+                    </button>
                 </section>
 
                 <section className="tcloud-explorer-section">
@@ -451,7 +533,19 @@ Ela precisa estar vazia.`)) return;
                     </div>
                     <button
                         type="button"
-                        className={`tcloud-explorer-folder-row ${activeFolderId === null && rootView === 'saved' ? 'is-active' : ''}`}
+                        className={`tcloud-explorer-folder-row tcloud-sidebar-cloud-root ${activeFolderId === null && rootView === 'dashboard' && activeForumId === null ? 'is-active' : ''}`}
+                        onClick={() => {
+                            setActiveFolderId(null);
+                            onRootViewChange('dashboard');
+                        }}
+                        title="Abrir seus arquivos"
+                    >
+                        <HardDrive className="h-4 w-4 text-app-accent" />
+                        <span>Meus arquivos</span>
+                    </button>
+                    <button
+                        type="button"
+                        className={`tcloud-explorer-folder-row tcloud-sidebar-special-row ${activeFolderId === null && rootView === 'saved' ? 'is-active' : ''}`}
                         onClick={() => { setActiveFolderId(null); onRootViewChange('saved'); }}
                     >
                         <Folder className="h-4 w-4" />
@@ -614,8 +708,20 @@ Ela precisa estar vazia.`)) return;
                     <div className="tcloud-explorer-section-title"><span>Biblioteca</span></div>
                     <NavItem icon={GalleryVerticalEnd} label="Galeria" active={activeFolderId === null && rootView === 'gallery'} onClick={() => { setActiveFolderId(null); onRootViewChange('gallery'); }} />
                     <NavItem icon={Music2} label="Música" active={activeFolderId === null && rootView === 'music'} onClick={() => { setActiveFolderId(null); onRootViewChange('music'); }} />
-                    <NavItem icon={CloudDownload} label="Neste computador" active={activeFolderId === null && rootView === 'offline'} onClick={() => { setActiveFolderId(null); onRootViewChange('offline'); }} title="Arquivos disponíveis sem internet" />
+                    <NavItem icon={Copy} label="Duplicados" onClick={() => onOpenDuplicates?.()} title="Encontrar arquivos idênticos e escolher quais remover" />
+
                     <NavItem icon={LockKeyhole} label="Cofre" active={activeFolderId === null && rootView === 'vault'} onClick={() => { setActiveFolderId(null); onRootViewChange('vault'); }} />
+                </section>
+                <section className="tcloud-explorer-section tcloud-sidebar-trash-section">
+                    <NavItem
+                        icon={Trash2}
+                        label="Lixeira"
+                        active={activeFolderId === null && rootView === 'trash'}
+                        onClick={() => {
+                            setActiveFolderId(null);
+                            onRootViewChange('trash');
+                        }}
+                    />
                 </section>
             </div>
 
