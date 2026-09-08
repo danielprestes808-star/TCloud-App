@@ -509,3 +509,111 @@ html, body, #root { background: var(--op-void) !important; color: var(--op-text)
 .tcloud-workspace-view.is-attention-center .tcloud-workspace-row-actions {
   justify-content: flex-end !important;
 }
+
+/* Theme-complete surface map. Every preset owns the whole desktop instead of
+   changing only the accent icons. These rules intentionally sit last so the
+   original Stitch mockup colors cannot leak through the runtime theme. */
+html.custom-theme body,
+html.custom-theme #root,
+html.custom-theme .desktop-shell,
+html.custom-theme .tcloud-explorer-main,
+html.custom-theme .tcloud-explorer-content,
+html.custom-theme .op-dashboard,
+html.custom-theme .tcloud-workspace-page,
+html.custom-theme .tcloud-settings-content {
+  background: var(--op-void) !important;
+  color: var(--op-text) !important;
+}
+html.custom-theme .tcloud-explorer-sidebar,
+html.custom-theme .tcloud-explorer-brand,
+html.custom-theme .tcloud-explorer-sidebar-scroll,
+html.custom-theme .tcloud-explorer-sidebar-footer,
+html.custom-theme .tcloud-explorer-header,
+html.custom-theme .tcloud-explorer-location-row,
+html.custom-theme .tcloud-explorer-command-row,
+html.custom-theme .tcloud-settings-header,
+html.custom-theme .tcloud-settings-sidebar,
+html.custom-theme .tcloud-settings-footer {
+  background: var(--op-rail) !important;
+  border-color: var(--op-border) !important;
+}
+html.custom-theme .desktop-shell input,
+html.custom-theme .desktop-shell select,
+html.custom-theme .desktop-shell textarea,
+html.custom-theme .tcloud-explorer-search {
+  background: var(--op-chrome-control) !important;
+  border-color: var(--op-border) !important;
+  color: var(--op-text) !important;
+}
+html.custom-theme .tcloud-explorer-search:focus-within,
+html.custom-theme .desktop-shell input:focus,
+html.custom-theme .desktop-shell select:focus,
+html.custom-theme .desktop-shell textarea:focus {
+  border-color: var(--op-indigo) !important;
+}
+html.custom-theme .tcloud-explorer-nav-item.is-active,
+html.custom-theme .tcloud-settings-nav-group button.is-active {
+  background: color-mix(in srgb, var(--op-indigo) 18%, var(--op-panel)) !important;
+  color: var(--op-text) !important;
+}
+html.custom-theme .tcloud-home-compact-header,
+html.custom-theme .tcloud-file-card,
+html.custom-theme .tcloud-workspace-metrics > div,
+html.custom-theme .tcloud-settings-content section,
+html.custom-theme .tcloud-simple-hero,
+html.custom-theme .tcloud-computer-connect,
+html.custom-theme .tcloud-simple-status-grid > *,
+html.custom-theme .tcloud-simple-action-grid > *,
+html.custom-theme .op-dashboard-hero,
+html.custom-theme .op-metric-grid > button,
+html.custom-theme .op-projects,
+html.custom-theme .op-file-table,
+html.custom-theme .op-dashboard-inspector > section {
+  background: var(--op-stage) !important;
+  border-color: var(--op-border) !important;
+  color: var(--op-text) !important;
+}
+html.custom-theme .tcloud-file-card:hover,
+html.custom-theme .tcloud-home-locations > button:hover,
+html.custom-theme .op-metric-grid > button:hover,
+html.custom-theme .op-project-grid > button:hover {
+  background: var(--op-raised) !important;
+  border-color: var(--op-border-focus) !important;
+}
+html.custom-theme .tcloud-quick-card,
+html.custom-theme .tcloud-home-file-tile,
+html.custom-theme .op-project-grid > button,
+html.custom-theme .op-transfer-live,
+html.custom-theme .tcloud-workspace-actions button,
+html.custom-theme .tcloud-workspace-row-actions button,
+html.custom-theme .tcloud-workspace-footer button,
+html.custom-theme .op-dashboard-inspector section > button:not(.op-device-row) {
+  background: var(--op-panel) !important;
+  border-color: var(--op-border) !important;
+  color: var(--op-text) !important;
+}
+html.custom-theme .tcloud-workspace-list-head,
+html.custom-theme .op-file-head,
+html.custom-theme .op-file-tabs {
+  background: var(--op-panel) !important;
+  border-color: var(--op-border) !important;
+}
+html.custom-theme .op-file-row:hover,
+html.custom-theme .op-file-tabs button:hover {
+  background: var(--color-app-hover) !important;
+}
+html.custom-theme .tcloud-vault-strip,
+html.custom-theme .op-security-card {
+  background: color-mix(in srgb, var(--op-indigo) 8%, var(--op-stage)) !important;
+  border-color: color-mix(in srgb, var(--op-indigo) 36%, var(--op-border)) !important;
+}
+html.custom-theme .tcloud-desktop-recent-carousel,
+html.custom-theme .tcloud-viewer-overlay .viewer-panel {
+  background: color-mix(in srgb, var(--op-void) 94%, #000) !important;
+  border-color: var(--op-border) !important;
+}
+html.custom-theme .tcloud-viewer-overlay .viewer-control,
+html.custom-theme .tcloud-viewer-overlay .viewer-navigation {
+  background: var(--op-panel) !important;
+  border-color: var(--op-border) !important;
+}
