@@ -733,6 +733,11 @@ fn claim_next_job(db: &DbConnection) -> Result<Option<PendingJob>, String> {
              replace(lower(path),'\\','/') LIKE '%/.gradle/%' OR
              replace(lower(path),'\\','/') LIKE '%/.git/%' OR
              replace(lower(path),'\\','/') LIKE '%/__pycache__/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.venv/%' OR
+             replace(lower(path),'\\','/') LIKE '%/venv/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.mypy_cache/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.ruff_cache/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.tox/%' OR
              replace(lower(path),'\\','/') LIKE '%/.turbo/%'
          )",
     ).map_err(|e| e.to_string())?;
