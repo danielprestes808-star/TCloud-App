@@ -1,7 +1,15 @@
 use serde::{Deserialize, Serialize};
 use sqlite::{Connection, State};
 
-const CORE_URL: &str = "http://127.0.0.1:8787";
+const DEFAULT_CORE_URL: &str = "https://tcloud-core.onrender.com";
+
+pub(crate) fn core_url() -> String {
+    std::env::var("TCLOUD_CORE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_CORE_URL.to_string())
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,7 +125,7 @@ pub(crate) fn canonical_media_url(core_file_id: &str) -> Result<String, String> 
     if value.is_empty() {
         return Err("core_file_id vazio.".to_string());
     }
-    Ok(format!("{CORE_URL}/api/v1/media/{value}"))
+    Ok(format!("{}/api/v1/media/{value}", core_url()))
 }
 
 pub(crate) fn canonical_file_url(core_file_id: &str) -> Result<String, String> {
@@ -125,7 +133,7 @@ pub(crate) fn canonical_file_url(core_file_id: &str) -> Result<String, String> {
     if value.is_empty() {
         return Err("core_file_id vazio.".to_string());
     }
-    Ok(format!("{CORE_URL}/api/v1/files/{value}"))
+    Ok(format!("{}/api/v1/files/{value}", core_url()))
 }
 
 pub(crate) fn validate_mutation_identity(
@@ -142,6 +150,7 @@ pub(crate) fn validate_mutation_identity(
 pub(crate) async fn tcloud_resolve_core_file_id(
     app: tauri::AppHandle,
     local_file_id: i64,
+    access_token: Option<String>,
 ) -> Result<CanonicalFileIdentity, String> {
     use tauri::Manager;
 
@@ -164,13 +173,10 @@ pub(crate) async fn tcloud_resolve_core_file_id(
         if let Some(identity) = identity.filter(|value| value.telegram_message_id.is_some()) {
             let client = reqwest::Client::new();
             let mut request = client
-                .get(format!("{CORE_URL}/api/v1/files"))
+                .get(format!("{}/api/v1/files", core_url()))
                 .timeout(std::time::Duration::from_secs(4));
-            if let Ok(token) = std::env::var("TCLOUD_MASTER_TOKEN") {
-                let token = token.trim();
-                if !token.is_empty() {
-                    request = request.bearer_auth(token);
-                }
+            if let Some(token) = access_token.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                request = request.bearer_auth(token);
             }
             match request.send().await {
                 Ok(response) if response.status().is_success() => match response.bytes().await {

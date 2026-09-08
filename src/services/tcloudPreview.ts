@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { resolveCanonicalFileRef } from "./tcloudCanonicalResolver";
+import { getTCloudDeviceAccessToken } from "./tcloudCoreSession";
 
 export interface TCloudPreviewInfo {
   file_id: number;
@@ -21,6 +22,7 @@ export async function prepareTCloudPreview(fileId: number) {
     return await invoke<TCloudPreviewInfo>("tcloud_prepare_canonical_preview", {
       fileId,
       coreFileId: canonical.coreFileId,
+      accessToken: getTCloudDeviceAccessToken(),
     });
   } catch {
     return local;

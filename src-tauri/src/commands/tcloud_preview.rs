@@ -194,6 +194,7 @@ pub async fn tcloud_prepare_canonical_preview(
     db: State<'_, DbConnection>,
     file_id: i64,
     core_file_id: String,
+    access_token: Option<String>,
 ) -> Result<TCloudPreviewInfo, String> {
     let core_file_id = core_file_id.trim().to_string();
     if core_file_id.is_empty() {
@@ -276,10 +277,8 @@ pub async fn tcloud_prepare_canonical_preview(
                 &core_file_id,
             )?)
             .header(reqwest::header::RANGE, format!("bytes={offset}-"));
-        if let Ok(token) = std::env::var("TCLOUD_MASTER_TOKEN") {
-            if !token.trim().is_empty() {
-                request = request.bearer_auth(token.trim());
-            }
+        if let Some(token) = access_token.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            request = request.bearer_auth(token);
         }
         let response = request.send().await.map_err(|e| e.to_string())?;
         if !response.status().is_success() {

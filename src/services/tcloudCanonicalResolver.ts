@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { CanonicalFileRef } from "./tcloudCanonicalIdentity";
+import { getTCloudDeviceAccessToken } from "./tcloudCoreSession";
 
 export type CanonicalResolvedFileRef = CanonicalFileRef & {
   localFileId: number;
@@ -25,7 +26,10 @@ export async function resolveCanonicalFileRef(
       localFileId: number;
       coreFileId: string | null;
       canonical: boolean;
-    }>("tcloud_resolve_core_file_id", { localFileId });
+    }>("tcloud_resolve_core_file_id", {
+      localFileId,
+      accessToken: getTCloudDeviceAccessToken(),
+    });
 
     return {
       localFileId,
