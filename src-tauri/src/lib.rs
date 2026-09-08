@@ -1,5 +1,5 @@
-pub mod models;
 pub mod crypto;
+pub mod models;
 
 /// Minimal startup diagnostics that work even before Tauri/logging is fully ready.
 /// `npm run tauri:shell` points this at app/stability-results/startup-latest.log.
@@ -12,11 +12,17 @@ fn startup_diag(message: &str) {
                 .map(std::path::PathBuf::from)
                 .map(|p| p.join("TCloud").join("logs").join("startup.log"))
         });
-    let Some(path) = path else { return; };
+    let Some(path) = path else {
+        return;
+    };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let epoch_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
@@ -53,7 +59,10 @@ fn init_com_on_worker_thread() {
     let hr = unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) };
     match hr {
         S_OK | S_FALSE => {
-            log::info!("COM MTA initialized on worker thread (hr=0x{:x})", hr as u32);
+            log::info!(
+                "COM MTA initialized on worker thread (hr=0x{:x})",
+                hr as u32
+            );
         }
         RPC_E_CHANGED_MODE => {
             // Thread was already initialized with a different apartment model.
@@ -72,35 +81,32 @@ fn init_com_on_worker_thread() {
     }
 }
 
-pub mod commands;
 pub mod bandwidth;
-pub mod vpn_optimizer;
+pub mod commands;
 pub mod socks5_bridge;
+pub mod vpn_optimizer;
 
-use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
 
-
-use tokio::sync::Mutex;
-use std::sync::Arc;
-use std::collections::{HashMap, HashSet};
-use commands::TelegramState;
 use commands::streaming::StreamConfig;
+use commands::TelegramState;
 use rand::Rng;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-
-pub mod server;
 pub mod api_routes;
+pub mod crypto_commands;
 pub mod db;
-pub mod share_routes;
-pub mod transcode;
 pub mod fmp4_remux;
 pub mod mp4_utils;
-pub mod crypto_commands;
-pub mod tcloud;
+pub mod server;
+pub mod share_routes;
 pub mod sync;
-
+pub mod tcloud;
+pub mod transcode;
 
 /// Single source of truth for the Actix streaming server port.
 /// Referenced in lib.rs (server startup) and exposed to the frontend
@@ -123,7 +129,6 @@ pub struct ApiServerRunning(pub Arc<std::sync::atomic::AtomicBool>);
 
 /// Holds the API server stop handle separately so we can restart it independently
 pub struct ApiServerHandle(pub Arc<std::sync::Mutex<Option<actix_web::dev::ServerHandle>>>);
-
 
 /// Restart (or stop) the API server based on current settings.
 /// Called from Tauri commands when the user changes API settings.
@@ -149,16 +154,30 @@ pub fn restart_api_server(app: &tauri::AppHandle) {
 
     // Need TelegramState to share with the API server
     let tg_state = Arc::new(app.state::<TelegramState>().inner().clone());
-    let bw_manager = app.state::<Arc<bandwidth::BandwidthManager>>().inner().clone();
-    let net_config = app.state::<Arc<vpn_optimizer::NetworkConfig>>().inner().clone();
+    let bw_manager = app
+        .state::<Arc<bandwidth::BandwidthManager>>()
+        .inner()
+        .clone();
+    let net_config = app
+        .state::<Arc<vpn_optimizer::NetworkConfig>>()
+        .inner()
+        .clone();
     let db_pool = app.state::<db::DbConnection>().inner().clone();
     let api_port = settings.port;
     let key_hash = settings.key_hash.clone();
     let handle_for_thread = api_handle_arc.clone();
 
     // Resolve cache dirs before the thread spawn since app is a reference
-    let preview_dir = app.path().app_cache_dir().unwrap_or_default().join("previews");
-    let thumbnail_dir = app.path().app_data_dir().unwrap_or_default().join("thumbnails");
+    let preview_dir = app
+        .path()
+        .app_cache_dir()
+        .unwrap_or_default()
+        .join("previews");
+    let thumbnail_dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_default()
+        .join("thumbnails");
 
     std::thread::spawn(move || {
         #[cfg(target_os = "windows")]
@@ -166,9 +185,7 @@ pub fn restart_api_server(app: &tauri::AppHandle) {
         let sys = actix_rt::System::new();
         sys.block_on(async move {
             let api_state_data = actix_web::web::Data::new(tg_state);
-            let api_state = actix_web::web::Data::new(api_routes::ApiState {
-                key_hash,
-            });
+            let api_state = actix_web::web::Data::new(api_routes::ApiState { key_hash });
             let cache_dirs = actix_web::web::Data::new(api_routes::CacheDirs {
                 thumbnail_dir,
                 preview_dir,
@@ -205,7 +222,8 @@ pub fn restart_api_server(app: &tauri::AppHandle) {
                     .app_data(api_db.clone())
                     .configure(api_routes::configure_api)
             })
-            .bind(("127.0.0.1", api_port)) {
+            .bind(("127.0.0.1", api_port))
+            {
                 Ok(bound) => {
                     let server = bound.run();
                     *handle_for_thread.lock().unwrap() = Some(server.handle());
@@ -222,7 +240,6 @@ pub fn restart_api_server(app: &tauri::AppHandle) {
     });
 }
 
-
 #[tauri::command]
 async fn tcloud_get_attention_center(
     db: tauri::State<'_, db::DbConnection>,
@@ -238,15 +255,16 @@ async fn tcloud_get_attention_center(
 #[tauri::command]
 fn cmd_open_file_externally(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    app_handle.opener().open_path(&path, None::<&str>).map_err(|e| e.to_string())
+    app_handle
+        .opener()
+        .open_path(&path, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 /// Gather system diagnostics and environment info for debugging.
 /// Returns a formatted string suitable for copying to clipboard.
 #[tauri::command]
-fn cmd_get_system_diagnostics(
-    app: tauri::AppHandle,
-) -> Result<String, String> {
+fn cmd_get_system_diagnostics(app: tauri::AppHandle) -> Result<String, String> {
     let mut lines: Vec<String> = Vec::new();
 
     lines.push("=== Telegram Drive Diagnostics ===".into());
@@ -254,16 +272,26 @@ fn cmd_get_system_diagnostics(
     lines.push(format!("Version: {}", env!("CARGO_PKG_VERSION")));
 
     // OS info
-    lines.push(format!("OS: {} {}", std::env::consts::OS, std::env::consts::ARCH));
+    lines.push(format!(
+        "OS: {} {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ));
 
     #[cfg(target_os = "linux")]
     {
-        lines.push(format!("XDG_SESSION_TYPE: {}",
-            std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unknown".into())));
-        lines.push(format!("XDG_CURRENT_DESKTOP: {}",
-            std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "unknown".into())));
-        lines.push(format!("WEBKIT_DISABLE_DMABUF_RENDERER: {}",
-            std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").unwrap_or_else(|_| "unset".into())));
+        lines.push(format!(
+            "XDG_SESSION_TYPE: {}",
+            std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unknown".into())
+        ));
+        lines.push(format!(
+            "XDG_CURRENT_DESKTOP: {}",
+            std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "unknown".into())
+        ));
+        lines.push(format!(
+            "WEBKIT_DISABLE_DMABUF_RENDERER: {}",
+            std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").unwrap_or_else(|_| "unset".into())
+        ));
     }
 
     #[cfg(target_os = "macos")]
@@ -289,7 +317,10 @@ fn cmd_get_system_diagnostics(
             .output()
             .ok()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-        lines.push(format!("FFmpeg: {}", which.unwrap_or_else(|| "not found".into())));
+        lines.push(format!(
+            "FFmpeg: {}",
+            which.unwrap_or_else(|| "not found".into())
+        ));
     }
 
     lines.push("==================================".into());
@@ -308,7 +339,9 @@ fn tcloud_tray_status_snapshot(app: &tauri::AppHandle) -> (String, String) {
     if let Some(db) = app.try_state::<db::DbConnection>() {
         if let Ok(conn) = db.lock() {
             let scalar = |sql: &str| -> i64 {
-                let Ok(mut stmt) = conn.prepare(sql) else { return 0; };
+                let Ok(mut stmt) = conn.prepare(sql) else {
+                    return 0;
+                };
                 if matches!(stmt.next(), Ok(sqlite::State::Row)) {
                     stmt.read::<i64, _>(0).unwrap_or(0)
                 } else {
@@ -319,7 +352,9 @@ fn tcloud_tray_status_snapshot(app: &tauri::AppHandle) -> (String, String) {
             pending = scalar("SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status='pending' AND COALESCE(paused,0)=0 AND COALESCE(cancel_requested,0)=0");
             failed = scalar("SELECT COUNT(DISTINCT j.file_id) FROM tcloud_sync_jobs j JOIN tcloud_files f ON f.id=j.file_id WHERE j.status='failed' AND COALESCE(f.sync_status,'') NOT IN ('synced','deleted','trashed') AND NOT EXISTS (SELECT 1 FROM tcloud_sync_jobs newer WHERE newer.file_id=j.file_id AND newer.operation=j.operation AND newer.id>j.id)");
             failed += scalar("SELECT COUNT(DISTINCT p.file_id) FROM tcloud_cfapi_pending_ops p WHERE p.completed_at IS NULL AND p.attempts>=12 AND NOT EXISTS (SELECT 1 FROM tcloud_cfapi_pending_ops newer WHERE newer.file_id=p.file_id AND newer.op_type=p.op_type AND newer.id>p.id)");
-            bytes_total = scalar("SELECT COALESCE(SUM(bytes_total),0) FROM tcloud_sync_jobs WHERE status='running'");
+            bytes_total = scalar(
+                "SELECT COALESCE(SUM(bytes_total),0) FROM tcloud_sync_jobs WHERE status='running'",
+            );
             bytes_done = scalar("SELECT COALESCE(SUM(bytes_transferred),0) FROM tcloud_sync_jobs WHERE status='running'");
             globally_paused = scalar("SELECT CASE WHEN value='-1' OR CAST(value AS INTEGER)>strftime('%s','now') THEN 1 ELSE 0 END FROM tcloud_settings WHERE key='sync_global_pause_until' LIMIT 1") > 0;
         }
@@ -339,21 +374,42 @@ fn tcloud_tray_status_snapshot(app: &tauri::AppHandle) -> (String, String) {
     }
     if failed > 0 {
         return (
-            format!("TCloud — {} {} precisam de atenção", failed, if failed == 1 { "item" } else { "itens" }),
-            format!("Sincronização — {} {}", failed, if failed == 1 { "problema" } else { "problemas" }),
+            format!(
+                "TCloud — {} {} precisam de atenção",
+                failed,
+                if failed == 1 { "item" } else { "itens" }
+            ),
+            format!(
+                "Sincronização — {} {}",
+                failed,
+                if failed == 1 { "problema" } else { "problemas" }
+            ),
         );
     }
     if running > 0 {
         let progress = if bytes_total > 0 {
-            ((bytes_done.max(0) as f64 / bytes_total.max(1) as f64) * 100.0).round().clamp(0.0,100.0) as i64
-        } else { 0 };
+            ((bytes_done.max(0) as f64 / bytes_total.max(1) as f64) * 100.0)
+                .round()
+                .clamp(0.0, 100.0) as i64
+        } else {
+            0
+        };
         let detail = if progress > 0 {
             format!("{} em andamento · {}%", running, progress)
         } else {
             format!("{} em andamento", running)
         };
         return (
-            format!("TCloud — Sincronizando {} {}{}", running, if running == 1 { "arquivo" } else { "arquivos" }, if progress > 0 { format!(" · {}%", progress) } else { String::new() }),
+            format!(
+                "TCloud — Sincronizando {} {}{}",
+                running,
+                if running == 1 { "arquivo" } else { "arquivos" },
+                if progress > 0 {
+                    format!(" · {}%", progress)
+                } else {
+                    String::new()
+                }
+            ),
             format!("Sincronização — {}", detail),
         );
     }
@@ -372,7 +428,11 @@ fn tcloud_tray_status_snapshot(app: &tauri::AppHandle) -> (String, String) {
     }
     if pending > 0 {
         return (
-            format!("TCloud — Preparando {} {}", pending, if pending == 1 { "arquivo" } else { "arquivos" }),
+            format!(
+                "TCloud — Preparando {} {}",
+                pending,
+                if pending == 1 { "arquivo" } else { "arquivos" }
+            ),
             format!("Sincronização — {} aguardando", pending),
         );
     }
@@ -381,7 +441,6 @@ fn tcloud_tray_status_snapshot(app: &tauri::AppHandle) -> (String, String) {
         "Sincronização — Tudo atualizado".into(),
     )
 }
-
 
 /// Reveal the existing desktop window with as little work as possible.
 ///
@@ -492,8 +551,44 @@ pub fn run() {
     let app = builder
         .setup(move |app| {
             startup_diag("setup: entered");
+            // TCloud Runtime 7.0: keep shared Platform services alive without
+            // blocking first paint. A hidden PowerShell supervisor owns Docker/PostgreSQL,
+            // Foundation Core and Web health/recovery and uses a global mutex.
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+                let supervisor = std::path::PathBuf::from(r"D:\\TCloud")
+                    .join("scripts")
+                    .join("tcloud-platform-supervisor.ps1");
+
+                if supervisor.exists() {
+                    let mut command = std::process::Command::new("powershell.exe");
+                    command
+                        .arg("-NoLogo")
+                        .arg("-NoProfile")
+                        .arg("-NonInteractive")
+                        .arg("-ExecutionPolicy")
+                        .arg("Bypass")
+                        .arg("-WindowStyle")
+                        .arg("Hidden")
+                        .arg("-File")
+                        .arg(&supervisor)
+                        .arg("-Root")
+                        .arg(r"D:\\TCloud")
+                        .creation_flags(CREATE_NO_WINDOW);
+
+                    match command.spawn() {
+                        Ok(_) => log::info!("TCloud Runtime 7.0 supervisor solicitado."),
+                        Err(error) => log::warn!("TCloud Runtime 7.0 supervisor nao iniciou: {}", error),
+                    }
+                }
+            }
+
             app.manage(TelegramState {
                 client: Arc::new(Mutex::new(None)),
+                client_init: Arc::new(Mutex::new(())),
                 login_token: Arc::new(Mutex::new(None)),
                 password_token: Arc::new(Mutex::new(None)),
                 api_id: Arc::new(Mutex::new(None)),
@@ -531,7 +626,7 @@ pub fn run() {
             app.manage(ActixServerHandle(server_handle_for_setup.clone()));
             app.manage(ApiServerHandle(Arc::new(std::sync::Mutex::new(None))));
             app.manage(ApiServerRunning(Arc::new(std::sync::atomic::AtomicBool::new(false))));
-            
+
             // Initialize TranscodeManager for HLS streaming
             let app_data_dir = app.path().app_data_dir().map_err(|e| {
                 log::error!("Failed to get app data dir: {}", e);
@@ -569,13 +664,17 @@ pub fn run() {
                     }
                 });
             }
-            
+
             // Initialize SQLite Database
             let db_pool = db::init_db(app.handle()).map_err(|e| {
                 log::error!("Failed to initialize SQLite database: {}", e);
                 e
             })?;
             app.manage(db_pool.clone());
+            if let Err(error) = commands::tcloud_storage_guard::install_storage_defaults(&db_pool) {
+                log::warn!("TCloud Smart Storage: nao foi possivel aplicar padroes: {}", error);
+            }
+            commands::tcloud_storage_guard::start_storage_guard(db_pool.clone());
             // Housekeeping can inspect many cache files. Never hold the Tauri setup
             // thread for it: the window should become usable first, then maintenance
             // quietly cleans stale history/old cache in a blocking worker.
@@ -643,6 +742,30 @@ pub fn run() {
                         }).await;
                     });
                 }
+            }
+
+            // TCloud Runtime 7.0: retry CFAPI connection after delayed logon,
+            // Explorer restarts or transient Windows Cloud Files availability.
+            #[cfg(target_os = "windows")]
+            {
+                let cfapi_recovery_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    loop {
+                        if !commands::tcloud_cfapi::provider_connected_fast() {
+                            let repair_app = cfapi_recovery_app.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                if let Some(db) = repair_app.try_state::<crate::db::DbConnection>() {
+                                    if let Ok(conn) = db.lock() {
+                                        let _ = commands::tcloud_cfapi::status_inner(&repair_app, Some(&conn));
+                                    }
+                                }
+                                commands::tcloud_cfapi::start_provider_if_registered(&repair_app);
+                            }).await;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                    }
+                });
             }
 
             // Start the durable TCloud queue processor. Jobs remain pending while
@@ -914,6 +1037,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::tcloud_canonical_ops::tcloud_resolve_core_file_id,
             commands::cmd_auth_app_credentials_status,
             commands::cmd_auth_request_code_simple,
             commands::cmd_auth_qr_login_simple,
@@ -1030,7 +1154,9 @@ pub fn run() {
             commands::tcloud_productivity::tcloud_pro_rule_save,
             commands::tcloud_productivity::tcloud_pro_rule_delete,
             commands::tcloud_productivity::tcloud_pro_backups_list,
+            commands::tcloud_productivity::tcloud_pc_known_folders,
             commands::tcloud_productivity::tcloud_pro_backup_save,
+            commands::tcloud_productivity::tcloud_pro_backup_run_now,
             commands::tcloud_productivity::tcloud_pro_backup_delete,
             commands::tcloud_productivity::tcloud_pro_backup_scan,
             commands::tcloud_productivity::tcloud_pro_backup_files,
@@ -1092,8 +1218,10 @@ pub fn run() {
             commands::tcloud_cache_manager::tcloud_get_cache_status,
             commands::tcloud_cache_manager::tcloud_set_cache_limit,
             commands::tcloud_cache_manager::tcloud_cleanup_cache,
+            commands::tcloud_storage_guard::tcloud_storage_guard_cleanup_now,
             commands::tcloud_dashboard::tcloud_get_dashboard_stats,
             commands::tcloud_preview::tcloud_prepare_preview,
+            commands::tcloud_preview::tcloud_prepare_canonical_preview,
             commands::tcloud_folder_manager::tcloud_list_folder_tree,
             commands::tcloud_folder_manager::tcloud_create_logical_folder,
             commands::tcloud_folder_manager::tcloud_update_folder_group,

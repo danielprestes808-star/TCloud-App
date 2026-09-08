@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { resolveCanonicalFileRef } from "./tcloudCanonicalResolver";
 
 export interface TCloudPreviewInfo {
   file_id: number;
@@ -11,7 +12,19 @@ export interface TCloudPreviewInfo {
 }
 
 export async function prepareTCloudPreview(fileId: number) {
-  return invoke<TCloudPreviewInfo>("tcloud_prepare_preview", { fileId });
+  const local = await invoke<TCloudPreviewInfo>("tcloud_prepare_preview", { fileId });
+  if (local.ready) return local;
+
+  const canonical = await resolveCanonicalFileRef(fileId);
+  if (!canonical.coreFileId) return local;
+  try {
+    return await invoke<TCloudPreviewInfo>("tcloud_prepare_canonical_preview", {
+      fileId,
+      coreFileId: canonical.coreFileId,
+    });
+  } catch {
+    return local;
+  }
 }
 
 export function tcloudLocalFileUrl(path: string) {

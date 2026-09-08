@@ -1,7 +1,8 @@
 use crate::db::DbConnection;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{Manager, State};
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TCloudPreviewInfo {
@@ -47,7 +48,9 @@ pub fn tcloud_prepare_preview(
     file_id: i64,
 ) -> Result<TCloudPreviewInfo, String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let (name, logical_path, mime_type, telegram_message_id) = {
         let mut stmt = conn
@@ -167,4 +170,176 @@ pub fn tcloud_prepare_preview(
             "Arquivo adicionado à fila de download para pré-visualização.".into()
         },
     })
+}
+
+fn safe_cache_name(core_file_id: &str, name: &str) -> String {
+    let safe = |value: &str| {
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+    };
+    format!("{}_{}", safe(core_file_id), safe(name))
+}
+
+#[tauri::command]
+pub async fn tcloud_prepare_canonical_preview(
+    app: tauri::AppHandle,
+    db: State<'_, DbConnection>,
+    file_id: i64,
+    core_file_id: String,
+) -> Result<TCloudPreviewInfo, String> {
+    let core_file_id = core_file_id.trim().to_string();
+    if core_file_id.is_empty() {
+        return Err("Identidade canônica ausente.".into());
+    }
+    let (name, mime_type, expected_size) = {
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT name,mime_type,size FROM tcloud_files WHERE id=?1 LIMIT 1")
+            .map_err(|e| e.to_string())?;
+        stmt.bind((1, file_id)).map_err(|e| e.to_string())?;
+        if !matches!(stmt.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            return Err("Arquivo não encontrado.".into());
+        }
+        (
+            stmt.read::<String, _>(0).map_err(|e| e.to_string())?,
+            stmt.read::<Option<String>, _>(1).unwrap_or(None),
+            stmt.read::<i64, _>(2).unwrap_or(0).max(0) as u64,
+        )
+    };
+
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("canonical-media");
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+    let target = cache_dir.join(safe_cache_name(&core_file_id, &name));
+    if target.is_file()
+        && (expected_size == 0 || target.metadata().map(|m| m.len()).unwrap_or(0) == expected_size)
+    {
+        crate::sync::cache::mark_cached(db.inner(), file_id, &target)?;
+        return Ok(TCloudPreviewInfo {
+            file_id,
+            name,
+            mime_type,
+            ready: true,
+            local_path: Some(target.to_string_lossy().to_string()),
+            queued: false,
+            message: "Mídia recuperada pelo identificador canônico.".into(),
+        });
+    }
+
+    let partial = target.with_extension(format!(
+        "{}.part",
+        target
+            .extension()
+            .and_then(|v| v.to_str())
+            .unwrap_or("media")
+    ));
+    let mut offset = tokio::fs::metadata(&partial)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    if expected_size > 0 && offset > expected_size {
+        tokio::fs::remove_file(&partial)
+            .await
+            .map_err(|e| e.to_string())?;
+        offset = 0;
+    }
+    let mut output = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&partial)
+        .await
+        .map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(45))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut total = expected_size;
+
+    while total == 0 || offset < total {
+        let mut request = client
+            .get(crate::commands::tcloud_canonical_ops::canonical_media_url(
+                &core_file_id,
+            )?)
+            .header(reqwest::header::RANGE, format!("bytes={offset}-"));
+        if let Ok(token) = std::env::var("TCLOUD_MASTER_TOKEN") {
+            if !token.trim().is_empty() {
+                request = request.bearer_auth(token.trim());
+            }
+        }
+        let response = request.send().await.map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("Core media HTTP {}", response.status()));
+        }
+        if let Some(range) = response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+        {
+            if let Some(value) = range.rsplit('/').next().and_then(|v| v.parse::<u64>().ok()) {
+                total = value;
+            }
+        } else if total == 0 {
+            total = offset + response.content_length().unwrap_or(0);
+        }
+        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+        if bytes.is_empty() {
+            return Err("O Core não retornou bytes da mídia.".into());
+        }
+        output.write_all(&bytes).await.map_err(|e| e.to_string())?;
+        output.flush().await.map_err(|e| e.to_string())?;
+        offset += bytes.len() as u64;
+    }
+    drop(output);
+    if total > 0 && offset != total {
+        return Err(format!(
+            "Download canônico incompleto: {offset} de {total} bytes."
+        ));
+    }
+    if target.exists() {
+        tokio::fs::remove_file(&target)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    tokio::fs::rename(&partial, &target)
+        .await
+        .map_err(|e| e.to_string())?;
+    crate::sync::cache::mark_cached(db.inner(), file_id, &target)?;
+
+    Ok(TCloudPreviewInfo {
+        file_id,
+        name,
+        mime_type,
+        ready: true,
+        local_path: Some(target.to_string_lossy().to_string()),
+        queued: false,
+        message: "Mídia recuperada pelo identificador canônico.".into(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_cache_name;
+
+    #[test]
+    fn canonical_cache_name_cannot_escape_cache_directory() {
+        let value = safe_cache_name("../../core:id", "../video:final?.mp4");
+        assert!(!value.contains('/'));
+        assert!(!value.contains('\\'));
+        assert!(!value.contains(':'));
+    }
 }
