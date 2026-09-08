@@ -40,6 +40,16 @@ local.properties
 /stability-results/
 /src-tauri/target/
 
+# Local safety copies and audit artifacts (kept on disk, never shipped)
+*.bak
+*.bak-*
+*.before-*
+/*backup*/
+/dist-shell-OLD/
+/*audit*.txt
+/*source*.txt
+/*build-error*.txt
+
 # TCloud local credentials and secrets
 /src-tauri/.env.tcloud
 .env
