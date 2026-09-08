@@ -1,4 +1,4 @@
-/// Crypto policy: limits, suites, and feature flags.
+//! Crypto policy: limits, suites, and feature flags.
 
 /// Magic bytes for the corrected TDENC2 envelope format.
 pub const MAGIC: &[u8; 6] = b"TDENC2";
