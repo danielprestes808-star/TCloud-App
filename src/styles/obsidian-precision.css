@@ -418,7 +418,7 @@ html, body, #root { background: var(--op-void) !important; color: var(--op-text)
 
 /* Unified Windows-style application chrome. The sidebar brand and the two
    toolbar rows end on the same baseline, so pages no longer look detached. */
-:root { --op-chrome: #0c0f16; --op-chrome-control: #151923; }
+:root { --op-chrome: var(--op-rail); --op-chrome-control: var(--op-stage); }
 .desktop-shell .tcloud-explorer-brand {
   min-height: 79px !important;
   height: 79px !important;
@@ -456,8 +456,8 @@ html, body, #root { background: var(--op-void) !important; color: var(--op-text)
   padding: 0 9px !important;
 }
 .desktop-shell .tcloud-explorer-search:focus-within {
-  border-color: #1d4ed8 !important;
-  box-shadow: 0 0 0 1px rgb(29 78 216 / .28) !important;
+  border-color: var(--op-indigo) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-indigo) 28%, transparent) !important;
 }
 .desktop-shell .tcloud-explorer-search input,
 .desktop-shell .tcloud-explorer-search input:focus {
@@ -492,7 +492,7 @@ html, body, #root { background: var(--op-void) !important; color: var(--op-text)
 /* Attention Center: errors remain readable and action buttons line up even
    when paths or backend messages are long. */
 .tcloud-workspace-view.is-attention-center .tcloud-workspace-heading {
-  background: #151923 !important;
+  background: var(--op-stage) !important;
 }
 .tcloud-workspace-view.is-attention-center .tcloud-workspace-name small {
   display: -webkit-box !important;

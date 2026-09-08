@@ -54,6 +54,25 @@ export function applyTheme(theme: CustomTheme): void {
   const p = theme.palette;
   const accentContrast = contrastText(p.primary);
   const css = `:root.custom-theme {
+  --op-void: ${p.bg};
+  --op-rail: color-mix(in srgb, ${p.bg} 88%, ${p.surface});
+  --op-stage: ${p.surface};
+  --op-panel: color-mix(in srgb, ${p.surface} 94%, ${p.text});
+  --op-raised: color-mix(in srgb, ${p.surface} 88%, ${p.text});
+  --op-border: color-mix(in srgb, ${p.border} 70%, transparent);
+  --op-border-focus: ${p.border};
+  --op-text: ${p.text};
+  --op-muted: ${p.subtext};
+  --op-faint: color-mix(in srgb, ${p.subtext} 68%, ${p.bg});
+  --op-indigo: ${p.primary};
+  --op-indigo-strong: color-mix(in srgb, ${p.primary} 78%, #000000);
+  --op-cyan: ${p.primary};
+  --op-violet: ${p.primary};
+  --op-success: ${p.primary};
+  --op-warning: ${p.primary};
+  --op-error: ${p.primary};
+  --op-chrome: color-mix(in srgb, ${p.bg} 92%, ${p.surface});
+  --op-chrome-control: color-mix(in srgb, ${p.surface} 82%, ${p.bg});
   --color-app-canvas: ${p.bg};
   --color-app-sidebar: color-mix(in srgb, ${p.surface} 90%, ${p.bg});
   --color-app-surface: ${p.surface};

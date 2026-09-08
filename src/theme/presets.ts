@@ -114,6 +114,34 @@ export const BUILTIN_THEMES: CustomTheme[] = [
       hover: 'rgba(0, 0, 0, 0.04)',
     },
   },
+  {
+    id: 'midnight-blue',
+    name: 'Midnight Blue',
+    isDark: true,
+    isBuiltin: true,
+    palette: { bg: '#080d18', surface: '#101827', primary: '#3b82f6', secondary: '#60a5fa', text: '#edf4ff', subtext: '#96a5bc', border: '#29364a', hover: '#182338' },
+  },
+  {
+    id: 'graphite',
+    name: 'Graphite',
+    isDark: true,
+    isBuiltin: true,
+    palette: { bg: '#111315', surface: '#1a1d20', primary: '#8ba3bd', secondary: '#b4c5d6', text: '#f0f2f4', subtext: '#9ba3ab', border: '#343a40', hover: '#24292e' },
+  },
+  {
+    id: 'ocean',
+    name: 'Ocean',
+    isDark: true,
+    isBuiltin: true,
+    palette: { bg: '#07151c', surface: '#0d222d', primary: '#2f9fc2', secondary: '#6dc4dc', text: '#e8f7fb', subtext: '#8eabb5', border: '#24424e', hover: '#15313d' },
+  },
+  {
+    id: 'cloud-light',
+    name: 'Cloud Light',
+    isDark: false,
+    isBuiltin: true,
+    palette: { bg: '#f3f6fa', surface: '#ffffff', primary: '#245fae', secondary: '#4b7fbd', text: '#172033', subtext: '#627087', border: '#d7dee8', hover: '#e9eef5' },
+  },
 ];
 
 /** Default palette values to seed a new custom theme. */
