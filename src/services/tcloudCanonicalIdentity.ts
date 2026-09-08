@@ -1,3 +1,5 @@
+import { getTCloudDeviceAccessToken } from "./tcloudCoreSession";
+
 const CORE_URL =
   (import.meta.env.VITE_TCLOUD_CORE_URL as string | undefined)?.replace(/\/+$/, "") ??
   "http://127.0.0.1:8787";
@@ -28,9 +30,15 @@ async function coreMutation(
   coreFileId: string,
   extra: Record<string, unknown> = {},
 ) {
+  const accessToken = getTCloudDeviceAccessToken();
   const response = await fetch(`${CORE_URL}/api/v1/files/${route}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(accessToken
+        ? { authorization: `Bearer ${accessToken}` }
+        : {}),
+    },
     body: JSON.stringify({ id: coreFileId, ...extra }),
   });
 
