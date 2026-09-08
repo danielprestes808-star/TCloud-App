@@ -21,19 +21,25 @@ import {
   restoreTrashMany,
   formatBytesCompact,
   type ProTrashItem,
+  listDuplicates,
+  trashDuplicateFiles,
+  type ProDuplicateGroup,
 } from '../../../services/tcloudProductivity';
 import { purgeTrash } from '../../../services/tcloudSyncMaturity';
 import {
+  cancelTCloudSyncJob,
   clearCompletedTCloudJobs,
+  cleanupStaleTCloudAttention,
   getTCloudSyncCenter,
   pauseTCloudSyncJob,
   resumeTCloudSyncJob,
+  retryAllTCloudSyncFailures,
   retryTCloudSyncJob,
   type TCloudSyncActivity,
 } from '../../../services/tcloudSyncCenter';
 import { getWindowsHelloStatus, unlockWithWindowsHello } from '../../../services/tcloudCompletion';
 
-export type ExplorerUtilityView = 'trash' | 'sync';
+export type ExplorerUtilityView = 'trash' | 'sync' | 'problems' | 'duplicates';
 
 interface ExplorerUtilityWorkspaceProps {
   view: ExplorerUtilityView;
@@ -50,6 +56,14 @@ interface VaultStatus {
 function formatWhen(epochSeconds: number) {
   if (!epochSeconds) return '—';
   return new Date(epochSeconds * 1000).toLocaleString('pt-BR');
+}
+
+function isTerminalRemoteMissing(job: TCloudSyncActivity) {
+  const error = (job.error || '').toLocaleLowerCase('pt-BR');
+  return error.startsWith('arquivo remoto nao encontrado.')
+    || error.startsWith('arquivo remoto não encontrado.')
+    || error.includes('origem remota nao encontrada com seguranca')
+    || error.includes('origem remota não encontrada com segurança');
 }
 
 function syncLabel(job: TCloudSyncActivity) {
@@ -85,6 +99,14 @@ function syncLabel(job: TCloudSyncActivity) {
 export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDetails }: ExplorerUtilityWorkspaceProps) {
   const queryClient = useQueryClient();
   const normalized = searchTerm.trim().toLocaleLowerCase('pt-BR');
+  const duplicatesQuery = useQuery<ProDuplicateGroup[]>({
+    queryKey: ['tcloud-duplicates-workspace'],
+    queryFn: listDuplicates,
+    enabled: view === 'duplicates',
+    staleTime: 10_000,
+  });
+  const [duplicateBusyHash, setDuplicateBusyHash] = useState<string | null>(null);
+
 
   const trashQuery = useQuery({
     queryKey: ['tcloud-trash-workspace'],
@@ -96,7 +118,7 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
   const syncQuery = useQuery({
     queryKey: ['tcloud-sync-workspace'],
     queryFn: getTCloudSyncCenter,
-    enabled: view === 'sync',
+    enabled: view === 'sync' || view === 'problems',
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 3_000;
@@ -117,6 +139,59 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
     window.addEventListener('tcloud-trash-changed', refresh);
     return () => window.removeEventListener('tcloud-trash-changed', refresh);
   }, [queryClient, view]);
+
+  // TCLOUD_UX_80_DUPLICATES_INLINE
+  if (view === 'duplicates') {
+    const groups = duplicatesQuery.data ?? [];
+    const shown = normalized
+      ? groups.filter((group) => group.files.some((file) => file.name.toLocaleLowerCase('pt-BR').includes(normalized)))
+      : groups;
+    const reclaimable = groups.reduce((total, group) => total + group.reclaimable_bytes, 0);
+
+    const removeExtraCopies = async (group: ProDuplicateGroup) => {
+      const candidates = group.files.slice(1).map((file) => file.file_id);
+      if (!candidates.length) return;
+      if (!window.confirm(`Mover ${candidates.length} cópia(s) idêntica(s) para a Lixeira?\n\nUma cópia será preservada.`)) return;
+      setDuplicateBusyHash(group.sha256);
+      try {
+        const result = await trashDuplicateFiles(candidates);
+        await duplicatesQuery.refetch();
+        window.dispatchEvent(new Event('tcloud-trash-changed'));
+        if (result.failed > 0) toast.warning(`${result.moved} cópia(s) movida(s); ${result.failed} falha(s).`);
+        else toast.success(`${result.moved} cópia(s) movida(s) para a Lixeira.`);
+      } catch (error) {
+        toast.error(`Não foi possível limpar as cópias: ${String(error)}`);
+      } finally {
+        setDuplicateBusyHash(null);
+      }
+    };
+
+    return (
+      <section className="tcloud-duplicates-workspace">
+        <header className="tcloud-duplicates-heading">
+          <div><h2>Duplicados</h2><p>Arquivos idênticos encontrados pelo conteúdo. Nada é apagado automaticamente.</p></div>
+          <button type="button" className="tcloud-utility-primary" onClick={() => void duplicatesQuery.refetch()} disabled={duplicatesQuery.isFetching}>
+            {duplicatesQuery.isFetching ? 'Verificando…' : 'Verificar agora'}
+          </button>
+        </header>
+        <div className="tcloud-duplicates-metrics">
+          <div><span>Grupos</span><strong>{groups.length}</strong></div>
+          <div><span>Espaço que pode ser liberado</span><strong>{formatBytesCompact(reclaimable)}</strong></div>
+        </div>
+        {duplicatesQuery.isLoading ? <div className="tcloud-utility-empty"><strong>Verificando duplicados…</strong></div>
+        : shown.length === 0 ? <div className="tcloud-utility-empty"><strong>Nenhum duplicado confirmado</strong><span>O TCloud compara o conteúdo dos arquivos pelo SHA-256.</span></div>
+        : <div className="tcloud-duplicates-list">{shown.map((group) =>
+            <article key={group.sha256} className="tcloud-duplicate-card">
+              <div><strong>{group.files.length} cópias</strong><span>{formatBytesCompact(group.size)} por arquivo</span></div>
+              <div className="tcloud-duplicate-files">{group.files.map((file) => <span key={file.file_id}>{file.name}</span>)}</div>
+              <button type="button" className="tcloud-duplicate-clean" disabled={duplicateBusyHash === group.sha256} onClick={() => void removeExtraCopies(group)}>
+                {duplicateBusyHash === group.sha256 ? 'Movendo…' : 'Manter uma cópia'}
+              </button>
+            </article>
+          )}</div>}
+      </section>
+    );
+  }
 
   if (view === 'trash') {
     const rows = (trashQuery.data ?? []).filter((item) => !normalized || item.name.toLocaleLowerCase('pt-BR').includes(normalized));
@@ -180,6 +255,7 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
   }
 
   const sync = syncQuery.data;
+  const attentionOnly = view === 'problems';
 
   const backendActiveCount =
     (sync?.running ?? 0) +
@@ -229,7 +305,7 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
     return 6;
   };
 
-  const jobs = syncJobs
+  const matchingJobs = syncJobs
     .filter((job) => {
       const status = (job.status || '').toLowerCase();
 
@@ -240,6 +316,8 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
           .includes(normalized);
 
       if (!matchesSearch) return false;
+
+      if (attentionOnly) return status === 'failed' || status === 'error';
 
       // Enquanto há trabalho real, prioriza somente aquilo que importa
       // agora. Histórico cancelado/concluído não deve parecer fila ativa.
@@ -263,6 +341,13 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
 
       return (b.updated_at || 0) - (a.updated_at || 0);
     });
+  // Rendering hundreds of live progress rows every second made the sync screen
+  // itself compete with uploads and feel frozen. Keep the useful head of the
+  // queue visible; the aggregate counters still represent every job.
+  const jobs = matchingJobs.slice(0, 120);
+  const failedJobs = syncJobs.filter((job) => /failed|error/i.test(job.status || ''));
+  const unavailableCount = failedJobs.filter(isTerminalRemoteMissing).length;
+  const retryableCount = Math.max(0, failedJobs.length - unavailableCount);
 
   const refreshSync = () =>
     void queryClient.invalidateQueries({
@@ -270,42 +355,51 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
     });
 
   return (
-    <section className="tcloud-workspace-view">
+    <section className={`tcloud-workspace-view ${attentionOnly ? 'is-attention-center' : ''}`}>
       <div className="tcloud-workspace-heading">
-        <div className="tcloud-workspace-icon is-accent"><RefreshCw className={`h-5 w-5 ${activeCount > 0 ? 'animate-spin' : ''}`} /></div>
+        <div className="tcloud-workspace-icon is-accent">{attentionOnly ? <CircleAlert className="h-5 w-5" /> : <RefreshCw className={`h-5 w-5 ${activeCount > 0 ? 'animate-spin' : ''}`} />}</div>
         <div>
-          <h2>Sincronização</h2>
+          <h2>{attentionOnly ? 'Precisa de atenção' : 'Sincronização'}</h2>
           <p>
-            {(sync?.failed ?? 0) > 0
+            {attentionOnly
+              ? failedJobs.length > 0
+                ? 'Veja a causa de cada falha e escolha a ação adequada.'
+                : 'Nenhum problema pendente. O TCloud está funcionando normalmente.'
+              : (sync?.failed ?? 0) > 0
               ? `${sync?.failed ?? 0} ${(sync?.failed ?? 0) === 1 ? 'item precisa' : 'itens precisam'} de atenção.`
               : activeCount > 0
                 ? `${activeCount} ${activeCount === 1 ? 'item está sendo sincronizado' : 'itens estão sendo sincronizados'} agora.`
                 : 'Tudo atualizado. Novas alterações aparecerão aqui automaticamente.'}
           </p>
         </div>
-        <div className="tcloud-workspace-actions"><button type="button" onClick={refreshSync}><RefreshCw className="h-4 w-4" />Atualizar</button>{onOpenSyncDetails && <button type="button" onClick={onOpenSyncDetails}>Detalhes</button>}</div>
+        <div className="tcloud-workspace-actions">
+          {attentionOnly && retryableCount > 0 && <button type="button" onClick={async () => { const count = await retryAllTCloudSyncFailures(); toast.success(`${count} item(ns) colocado(s) novamente na fila.`); refreshSync(); }}><RefreshCw className="h-4 w-4" />Tentar todos</button>}
+          {attentionOnly && failedJobs.length > 0 && <button type="button" onClick={async () => { const result = await cleanupStaleTCloudAttention(); toast.success(`${result.cleaned_sync_jobs + result.cleaned_cfapi_ops} aviso(s) resolvido(s) removido(s).`); refreshSync(); }}>Limpar resolvidos</button>}
+          <button type="button" onClick={refreshSync}><RefreshCw className="h-4 w-4" />Atualizar</button>
+          {!attentionOnly && onOpenSyncDetails && <button type="button" onClick={onOpenSyncDetails}>Detalhes</button>}
+        </div>
       </div>
 
       <div className="tcloud-workspace-metrics">
         <div>
-          <span>Em andamento</span>
-          <strong>{activeCount}</strong>
+          <span>{attentionOnly ? 'Falhas atuais' : 'Em andamento'}</span>
+          <strong>{attentionOnly ? failedJobs.length : activeCount}</strong>
         </div>
 
         <div className={(sync?.failed ?? 0) > 0 ? 'is-danger' : ''}>
-          <span>Precisa de atenção</span>
-          <strong>{sync?.failed ?? 0}</strong>
+          <span>{attentionOnly ? 'Pode tentar novamente' : 'Precisa de atenção'}</span>
+          <strong>{attentionOnly ? retryableCount : sync?.failed ?? 0}</strong>
         </div>
 
         <div>
-          <span>Concluídos recentes</span>
-          <strong>{sync?.completed ?? 0}</strong>
+          <span>{attentionOnly ? 'Arquivo não encontrado' : 'Concluídos recentes'}</span>
+          <strong>{attentionOnly ? unavailableCount : sync?.completed ?? 0}</strong>
         </div>
 
         <div>
-          <span>{aggregateSpeed > 0 ? 'Velocidade atual' : 'Atividade recente'}</span>
+          <span>{attentionOnly ? 'Sincronizando agora' : aggregateSpeed > 0 ? 'Velocidade atual' : 'Atividade recente'}</span>
           <strong>
-            {aggregateSpeed > 0
+            {attentionOnly ? activeCount : aggregateSpeed > 0
               ? `${formatBytesCompact(aggregateSpeed)}/s`
               : syncJobs.length >= 100
                 ? '100+'
@@ -321,7 +415,7 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
           {normalized ? (
             <>
               <Cloud className="h-8 w-8" />
-              <strong>Nenhuma atividade encontrada</strong>
+              <strong>{attentionOnly ? 'Nenhum problema encontrado' : 'Nenhuma atividade encontrada'}</strong>
               <span>Tente outro termo de pesquisa.</span>
             </>
           ) : activeCount > 0 ? (
@@ -337,8 +431,8 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
           ) : (
             <>
               <CheckCircle2 className="h-8 w-8 text-app-success" />
-              <strong>Tudo atualizado</strong>
-              <span>Não há arquivos esperando sincronização.</span>
+              <strong>{attentionOnly ? 'Nenhuma ação necessária' : 'Tudo atualizado'}</strong>
+              <span>{attentionOnly ? 'Falhas novas aparecerão aqui com a causa e as opções de correção.' : 'Não há arquivos esperando sincronização.'}</span>
             </>
           )}
         </div>
@@ -361,7 +455,7 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
                   <span>
                     <strong>{job.file_name || job.file_path || 'Operação do TCloud'}</strong>
                     <small>
-                      {job.operation}
+                      {failed && job.error ? job.error : job.operation}
                       {job.speed_bps > 0
                         ? ` · ${formatBytesCompact(job.speed_bps)}/s`
                         : ''}
@@ -371,7 +465,8 @@ export function ExplorerUtilityWorkspace({ view, searchTerm = '', onOpenSyncDeta
                 <span className={failed ? 'text-app-danger' : ''}>{syncLabel(job)}</span>
                 <div className="tcloud-workspace-progress"><i><b style={{ width: `${progress}%` }} /></i><small>{progress}%</small></div>
                 <div className="tcloud-workspace-row-actions">
-                  {failed && <button type="button" onClick={async () => { await retryTCloudSyncJob(job.id); refreshSync(); }}><RefreshCw className="h-3.5 w-3.5" />Tentar novamente</button>}
+                  {failed && !isTerminalRemoteMissing(job) && <button type="button" onClick={async () => { await retryTCloudSyncJob(job.id); refreshSync(); }}><RefreshCw className="h-3.5 w-3.5" />Tentar novamente</button>}
+                  {failed && isTerminalRemoteMissing(job) && <button type="button" onClick={async () => { await cancelTCloudSyncJob(job.id); toast.success('Aviso removido da fila.'); refreshSync(); }}><Trash2 className="h-3.5 w-3.5" />Remover aviso</button>}
                   {!failed && (
                     <>
                       {((job.status || '').toLowerCase() === 'paused' || job.paused) && (

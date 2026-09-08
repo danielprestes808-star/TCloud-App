@@ -34,7 +34,7 @@ import { ExplorerUtilityWorkspace, ExplorerVaultHeader } from './dashboard/Explo
 import type { TCloudAdvancedTab } from './dashboard/TCloudAdvancedCenterModal';
 
 import { getTCloudSetupState } from '../../services/tcloudSetup';
-import { Files, Link, Copy, Check, X, Loader2, Share2, FolderOpen, Image, Video, FileText, Music, ArrowRight, HardDrive, Star, CircleAlert, RefreshCw, CheckCircle2, Cloud, CloudOff, LockKeyhole } from 'lucide-react';
+import { Files, Link, Copy, Check, X, Loader2, Share2, FolderOpen, Image, Video, FileText, Music, ArrowRight, HardDrive, Star, Clock3, CircleAlert, RefreshCw, CheckCircle2, Cloud, CloudOff, LockKeyhole } from 'lucide-react';
 
 // Hooks
 import { useTelegramConnection } from '../../hooks/useTelegramConnection';
@@ -45,14 +45,16 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSettings, type ExplorerViewMode } from '../../context/SettingsContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { favoriteKey, getFavoriteIds, subscribeFavorites, syncFavoritesFromTelegram, type FavoriteKey } from '../../services/tcloudFavorites';
-import { getCfapiStatus, openCfapiRoot, parseNaturalTCloudSearch, retryFailedCfapiOperations, setCfapiItemAvailability } from '../../services/tcloudCompletion';
+import { getCfapiStatus, getWindowsStartupEnabled, openCfapiRoot, parseNaturalTCloudSearch, setCfapiItemAvailability, setWindowsStartupEnabled } from '../../services/tcloudCompletion';
 import { createTCloudForum, createTCloudForumTopic, refreshTCloudForumTreeFromTelegram, type TCloudForumTree } from '../../services/tcloudForums';
 import { listBackupFiles, listIndexedFiles, markBackupFile, markBackupRun, listTrash, searchIndexedContent, upsertIndexedFiles, type ProBackupSource } from '../../services/tcloudProductivity';
 import { purgeTrash } from '../../services/tcloudSyncMaturity';
-import { cleanupStaleTCloudAttention, getTCloudSyncOverview, retryAllTCloudSyncFailures } from '../../services/tcloudSyncCenter';
+import { cleanupStaleTCloudAttention, getTCloudSyncOverview } from '../../services/tcloudSyncCenter';
 import { isTCloudUiBackgroundReady } from '../../services/tcloudWindowResume';
 import { getFolderNavigationSnapshot, setFolderNavigationSnapshot, warmFolderNavigationSnapshot } from '../../services/tcloudFolderNavigationCache';
+import { getCachedThumbnail, loadThumbnail } from '../../services/imagePreviewCache';
 
+import { foundation5MutationCompleted } from "../../services/tcloudFoundation5";
 // Heavy/rarely-used surfaces are loaded only when the user opens them. Keeping
 // them out of the initial dashboard bundle is especially important for PDF,
 // adaptive MP4/HLS playback and the large settings/advanced centers.
@@ -73,12 +75,16 @@ const FileDetailsPanel = lazy(() => import('./dashboard/FileDetailsPanel').then(
 const TCloudSetupWizard = lazy(() => import('../../pages/TCloudSetupWizard'));
 
 type TCloudFileFilter = 'all' | 'images' | 'videos' | 'audio' | 'documents' | 'archives';
-type ExplorerRootView = 'dashboard' | 'saved' | 'recent' | 'favorites' | 'problems' | 'sync' | 'trash' | 'gallery' | 'music' | 'offline' | 'vault';
+type ExplorerRootView = 'dashboard' | 'saved' | 'recent' | 'favorites' | 'problems' | 'sync' | 'trash' | 'gallery' | 'music' | 'offline' | 'vault' | 'duplicates' | 'settings';
 type ExplorerNavigationSnapshot = { folderId: number | null; rootView: ExplorerRootView; forumId: number | null };
 type TCloudDateFilter = 'any' | 'today' | '7days' | '30days';
 type ExplorerClipboardMode = 'copy' | 'cut';
 type ExplorerClipboardItem = { id: number; name: string; sourceFolderId: number | null };
 type InlineExplorerEditor = { mode: 'create'; value: string } | { mode: 'rename'; value: string; target: TelegramFile };
+
+function normalizeFolderName(value: string) {
+    return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR');
+}
 
 function windowsLikeFolderName(baseName: string, existingNames: string[]) {
     const used = new Set(existingNames.map((name) => name.trim().toLocaleLowerCase('pt-BR')));
@@ -96,6 +102,23 @@ function LazyOverlayFallback() {
                 Abrindo...
             </div>
         </div>
+    );
+}
+
+function RecentCarouselImage({ file }: { file: TelegramFile }) {
+    const [src, setSrc] = useState(() => getCachedThumbnail(file.id, file.folder_id ?? null));
+    useEffect(() => {
+        let cancelled = false;
+        if (!src) void loadThumbnail(file.id, file.folder_id ?? null).then((value) => {
+            if (!cancelled && value) setSrc(value);
+        }).catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [file.folder_id, file.id, src]);
+    return src ? <img src={src} alt="" /> : (
+        <span className="tcloud-carousel-fallback" aria-hidden="true">
+            <Image className="h-8 w-8" />
+            <small>Prévia indisponível</small>
+        </span>
     );
 }
 
@@ -135,6 +158,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const queryClient = useQueryClient();
     const { t } = useTranslation();
 
+    // Live Sync 7.2: the cached-first query owns the real Telegram refresh.
+    // Expose only the currently active folder refresh to the revision listener.
+    const liveActiveFolderRefreshRef = useRef<(() => Promise<void>) | null>(null);
+    const liveActiveFolderRefreshBusyRef = useRef(false);
+
 
     const {
         store, folders, groups, activeFolderId, setActiveFolderId, isSyncing, isConnected,
@@ -152,7 +180,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     // One shared folder tree feeds the breadcrumb, sidebar and folder creation.
     // This avoids separate Telegram scans producing slightly different UI trees.
-    const { data: forumTree = [] } = useQuery({
+    const { data: rawForumTree = [] } = useQuery({
         queryKey: ['tcloud-forum-tree'],
         queryFn: refreshTCloudForumTreeFromTelegram,
         enabled: isConnected,
@@ -160,12 +188,104 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         refetchInterval: 15_000,
         refetchIntervalInBackground: true,
     });
+    const forumTree = useMemo(() => {
+        const groups = new Map<string, TCloudForumTree[]>();
+        for (const forum of rawForumTree) {
+            const key = normalizeFolderName(forum.name);
+            groups.set(key, [...(groups.get(key) ?? []), forum]);
+        }
+        return Array.from(groups.values()).map((matches) => {
+            const primary = matches.slice().sort((left, right) => right.topics.length - left.topics.length || left.id - right.id)[0];
+            const topics = new Map<string, TCloudForumTree['topics'][number]>();
+            for (const forum of matches) {
+                for (const topic of forum.topics) {
+                    const key = normalizeFolderName(topic.name);
+                    if (!topics.has(key)) topics.set(key, topic);
+                }
+            }
+            return { ...primary, topics: Array.from(topics.values()) };
+        });
+    }, [rawForumTree]);
 
     useEffect(() => {
         const changed = () => void queryClient.invalidateQueries({ queryKey: ['tcloud-forum-tree'] });
         window.addEventListener('tcloud-forums-changed', changed);
         return () => window.removeEventListener('tcloud-forums-changed', changed);
     }, [queryClient]);
+
+    useEffect(() => {
+        let timer: number | null = null;
+
+        const liveChanged = () => {
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
+
+            timer = window.setTimeout(() => {
+                timer = null;
+
+                void (async () => {
+                    // Invalidate navigation/tree first, but do not rely on React Query
+                    // invalidation to perform the Telegram scan. The files query is
+                    // cached-first and schedules its remote scan separately.
+                    await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ['folders'] }),
+                        queryClient.invalidateQueries({ queryKey: ['tcloud-forum-tree'] }),
+                    ]);
+
+                    const refreshActive = liveActiveFolderRefreshRef.current;
+
+                    if (refreshActive && !liveActiveFolderRefreshBusyRef.current) {
+                        liveActiveFolderRefreshBusyRef.current = true;
+
+                        try {
+                            await refreshActive();
+                        } catch (error) {
+                            console.warn(
+                                'TCloud Live Sync: refresh remoto da pasta adiado',
+                                error
+                            );
+
+                            await queryClient.invalidateQueries({
+                                queryKey: ['files', activeFolderId],
+                            });
+                        } finally {
+                            liveActiveFolderRefreshBusyRef.current = false;
+                        }
+                    } else {
+                        await queryClient.invalidateQueries({
+                            queryKey: ['files', activeFolderId],
+                        });
+                    }
+
+                    // Run after the authoritative Desktop snapshot is published so
+                    // Explorer sees the same namespace as the app.
+                    await invoke('tcloud_cfapi_refresh_folders').catch((error) => {
+                        console.warn(
+                            'TCloud Live Sync: CFAPI refresh adiado',
+                            error
+                        );
+                    });
+                })();
+            }, 120);
+        };
+
+        window.addEventListener(
+            'tcloud:foundation5-data-changed',
+            liveChanged
+        );
+
+        return () => {
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
+
+            window.removeEventListener(
+                'tcloud:foundation5-data-changed',
+                liveChanged
+            );
+        };
+    }, [activeFolderId, queryClient]);
 
     useEffect(() => {
         if (!isConnected) return;
@@ -194,7 +314,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         //
         // An empty tree previously triggered this after only 300ms, competing
         // directly with cmd_get_files during cold startup.
-        const firstDelay = forumTree.length === 0 ? 4_000 : 12_000;
+        const firstDelay = forumTree.length === 0 ? 900 : 2_500;
         const first = window.setTimeout(() => void refreshRemoteTree(), firstDelay);
         // 13.0.16: keep importing folders created on another TCloud client.
         // The refresh itself is visibility/in-flight guarded, so this does not
@@ -261,7 +381,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
     const [showMoveModal, setShowMoveModal] = useState(false);
-    const [showSettings, setShowSettings] = useState(false);
     const [showTCloudDashboard, setShowTCloudDashboard] = useState(false);
     const [showTCloudSyncCenter, setShowTCloudSyncCenter] = useState(false);
     const [showTCloudOperations, setShowTCloudOperations] = useState(false);
@@ -274,6 +393,12 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     useEffect(() => {
         if (!selectedForum) return;
+        // "Meu computador" e "Meu telefone" são raízes virtuais que podem
+        // agregar vários fóruns e estruturas legadas. Não as substitua pelo
+        // fórum físico que forneceu o ID-base, pois isso fazia Meu telefone
+        // abrir diretamente como Meu computador.
+        const selectedRootName = selectedForum.name.trim().toLocaleLowerCase('pt-BR');
+        if (selectedRootName === 'meu computador' || selectedRootName === 'meu telefone') return;
         const refreshed = forumTree.find((forum) => forum.id === selectedForum.id);
         if (!refreshed) {
             setSelectedForum(null);
@@ -288,6 +413,12 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [inlineEditorBusy, setInlineEditorBusy] = useState(false);
     const [explorerClipboard, setExplorerClipboard] = useState<{ mode: ExplorerClipboardMode; items: ExplorerClipboardItem[] } | null>(null);
     const [rootView, setRootView] = useState<ExplorerRootView>('dashboard');
+    // TCLOUD_UX_80_ROOT_VIEW_CONTEXT
+    useEffect(() => {
+        document.documentElement.dataset.tcloudRootView = rootView;
+        return () => { delete document.documentElement.dataset.tcloudRootView; };
+    }, [rootView]);
+
     const navigationHistoryRef = useRef<ExplorerNavigationSnapshot[]>([{ folderId: null, rootView: 'dashboard', forumId: null }]);
     const navigationIndexRef = useRef(0);
     const [navigationIndex, setNavigationIndex] = useState(0);
@@ -670,6 +801,23 @@ const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
                 }
             };
 
+            // Live Sync 7.2: revision changes can now invoke the exact same
+            // authoritative Telegram refresh used by this cached-first query.
+            liveActiveFolderRefreshRef.current = async () => {
+                const finalFiles = await refreshRemote(false);
+
+                queryClient.setQueryData<TelegramFile[]>(
+                    ['files', activeFolderId],
+                    finalFiles
+                );
+
+                setFolderNavigationSnapshot(
+                    activeFolderId,
+                    finalFiles,
+                    Date.now()
+                );
+            };
+
             // Always leave React Query's loading state from the local SQLite snapshot,
             // even when the snapshot is empty. Telegram refresh then runs after first
             // paint and streams results progressively. This removes the long skeleton
@@ -682,11 +830,14 @@ const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
                     void refreshRemote(hasCachedSnapshot).finally(() => {
                         remoteRefreshInFlightRef.current.delete(refreshKey);
                     });
-                }, memorySnapshot ? 900 : hasCachedSnapshot ? 350 : 40);
+                // TCLOUD_PERF_83_FOLDER_REFRESH
+                // Let the cached-first UI and thumbnails get the bandwidth first.
+                // Live Revision still refreshes immediately when something changes.
+                }, memorySnapshot ? 1_500 : hasCachedSnapshot ? 650 : 40);
             }
             return cachedFiles;
         },
-        staleTime: 5 * 60_000,
+        staleTime: 30_000,
         // Cold React Query entries can be released earlier because the separate
         // navigation LRU is bounded and keeps only the hottest folders.
         gcTime: 12 * 60_000,
@@ -728,6 +879,13 @@ const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
     useEffect(() => () => {
         if (folderWarmTimerRef.current) clearTimeout(folderWarmTimerRef.current);
     }, []);
+
+    useEffect(() => {
+        return () => {
+            liveActiveFolderRefreshRef.current = null;
+            liveActiveFolderRefreshBusyRef.current = false;
+        };
+    }, [activeFolderId]);
 
     // Warm one adjacent folder from the local index only after the current view is
     // settled. This makes the common "next folder" action instant without causing
@@ -1014,10 +1172,12 @@ const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
         && rootView === 'dashboard'
         && !hasActiveSearch
         && activeFilterCount === 0;
-    const showUtilityWorkspace = activeFolderId === null && (rootView === 'trash' || rootView === 'sync');
+    const showUtilityWorkspace = (activeFolderId === null && (rootView === 'trash' || rootView === 'sync' || rootView === 'problems')) || rootView === 'duplicates';
+    const canWriteCurrentView = activeFolderId !== null || rootView === 'saved';
     const showFileExplorer =
         !showForumOverview
         && !showUtilityWorkspace
+        && rootView !== 'settings'
         && (
             activeFolderId !== null
             || rootView !== 'dashboard'
@@ -1058,6 +1218,20 @@ const dashboardRecentFiles = useMemo(() =>
             .slice(0, 6),
         [dashboardCleanFiles]
     );
+    const dashboardRecentMedia = useMemo(
+        () => dashboardRecentFiles.filter((file) => /\.(jpg|jpeg|png|gif|webp|bmp|heic|avif)$/i.test(file.name)),
+        [dashboardRecentFiles],
+    );
+    const [dashboardCarouselIndex, setDashboardCarouselIndex] = useState(0);
+    const [dashboardCarouselPaused, setDashboardCarouselPaused] = useState(false);
+    useEffect(() => {
+        if (dashboardRecentMedia.length < 2 || dashboardCarouselPaused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const timer = window.setInterval(() => setDashboardCarouselIndex((current) => (current + 1) % dashboardRecentMedia.length), 4500);
+        return () => window.clearInterval(timer);
+    }, [dashboardCarouselPaused, dashboardRecentMedia.length]);
+    const activeDashboardCarouselIndex = dashboardRecentMedia.length > 0
+        ? dashboardCarouselIndex % dashboardRecentMedia.length
+        : 0;
 
     const dashboardFavoriteFiles = useMemo(() => {
         const favorites = new Set(favoriteIds);
@@ -1099,6 +1273,13 @@ const dashboardRecentFiles = useMemo(() =>
             return (overview?.failed ?? 0) > 0 ? 15_000 : 20_000;
         },
         refetchIntervalInBackground: false,
+        enabled: !!store,
+    });
+
+    const { data: startupEnabled = false } = useQuery({
+        queryKey: ['windows-startup-enabled'],
+        queryFn: getWindowsStartupEnabled,
+        staleTime: 60_000,
         enabled: !!store,
     });
 
@@ -1685,7 +1866,8 @@ const dashboardRecentFiles = useMemo(() =>
                 setShowTCloudSyncCenter(true);
             }
             if (event.payload === 'settings') {
-                setShowSettings(true);
+                setActiveFolderId(null);
+                setRootView('settings');
             }
         }).then((unlisten) => cleanups.push(unlisten));
         const previewHandler = (event: Event) => {
@@ -1947,6 +2129,7 @@ const dashboardRecentFiles = useMemo(() =>
             : rootView === 'music' ? 'Música'
             : rootView === 'offline' ? 'Neste computador'
             : rootView === 'vault' ? 'Cofre'
+            : rootView === 'duplicates' ? 'Duplicados'
             : null;
         return special ? [root, { label: special }] : [root];
     }, [selectedForum, activeFolderId, activeForumParent, activeForumTopic, rootView, folders, setActiveFolderId]);
@@ -2002,6 +2185,7 @@ const dashboardRecentFiles = useMemo(() =>
             : rootView === 'music' ? 'Música'
             : rootView === 'offline' ? 'Neste computador'
             : rootView === 'vault' ? 'Cofre'
+            : rootView === 'duplicates' ? 'Duplicados'
             : 'Início'
             : activeForumTopic?.name || folders.find(f => f.id === activeFolderId)?.name || t('common.folders');
 
@@ -2083,19 +2267,6 @@ const dashboardRecentFiles = useMemo(() =>
         }
     }, [activeFolderId, displayedFiles, queryClient, selectedIds]);
 
-    const handleRetryAllProblems = useCallback(async () => {
-        const tasks: Promise<unknown>[] = [retryAllTCloudSyncFailures()];
-        if ((explorerConnection?.failed_operations ?? 0) > 0) tasks.push(retryFailedCfapiOperations());
-        const results = await Promise.allSettled(tasks);
-        const failed = results.filter((result) => result.status === 'rejected').length;
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['tcloud-sync-overview'] }),
-            queryClient.invalidateQueries({ queryKey: ['cfapi-status'] }),
-            queryClient.invalidateQueries({ queryKey: ['files'] }),
-        ]);
-        if (failed === 0) toast.success('O TCloud colocou todos os problemas atuais novamente na fila.');
-        else toast.warning('Algumas ações ainda precisam de atenção.');
-    }, [explorerConnection?.failed_operations, queryClient]);
 
     const handleCleanupHistoricalProblems = useCallback(async () => {
         try {
@@ -2283,12 +2454,12 @@ const dashboardRecentFiles = useMemo(() =>
                 onCreateGroup={handleCreateGroup}
                 onUpdateGroup={handleUpdateGroup}
                 onDeleteGroup={handleDeleteGroup}
-                onOpenSettings={() => setShowSettings(true)}
+                onOpenSettings={() => { setActiveFolderId(null); setRootView('settings'); }}
                 onOpenForums={() => setShowForumManager(true)}
                 onOpenAdvanced={() => { setAdvancedInitialTab('index'); setShowAdvancedCenter(true); }}
-                onOpenDuplicates={() => { setAdvancedInitialTab('duplicates'); setShowAdvancedCenter(true); }}
                 problemCount={problemCount}
                 syncingCount={syncingCount}
+                settingsOpen={rootView === 'settings'}
                 onOpenForum={(forum) => {
                     setActiveFolderId(null);
                     setRootView('dashboard');
@@ -2296,7 +2467,7 @@ const dashboardRecentFiles = useMemo(() =>
                 }}
             />
 
-            <main className="tcloud-main-pane flex min-h-0 min-w-0 flex-1 flex-col" onWheelCapture={handleMainWheel}>
+            <main className="tcloud-main-pane relative flex min-h-0 min-w-0 flex-1 flex-col" onWheelCapture={handleMainWheel}>
                 <TopBar
                     currentFolderName={currentFolderName}
                     breadcrumbs={breadcrumbs}
@@ -2348,7 +2519,7 @@ const dashboardRecentFiles = useMemo(() =>
                         setFileFilter('all');
                         setDateFilter('any');
                     }}
-                    onSettingsClick={() => setShowSettings(true)}
+                    onSettingsClick={() => { setActiveFolderId(null); setRootView('settings'); }}
                     onTCloudClick={() => setShowTCloudDashboard(true)}
                     onTCloudSyncClick={() => { setSelectedForum(null); setActiveFolderId(null); setRootView('sync'); }}
                     problemCount={problemCount}
@@ -2360,7 +2531,21 @@ const dashboardRecentFiles = useMemo(() =>
                     showFileTools={!showUtilityWorkspace && !showHomeDashboard}
                 />
 
-                {inlineEditor && (
+                {rootView === 'settings' && (
+                    <Suspense fallback={<LazyOverlayFallback />}>
+                        <SettingsModal
+                            isOpen
+                            embedded
+                            onClose={() => setRootView('dashboard')}
+                            onOpenOperations={() => setShowTCloudSyncCenter(true)}
+                            onOpenAdvanced={() => { setAdvancedInitialTab('index'); setShowAdvancedCenter(true); }}
+                            onOpenSetup={() => setShowTCloudSetup(true)}
+                            isConnected={isConnected}
+                        />
+                    </Suspense>
+                )}
+
+                {inlineEditor && rootView !== 'settings' && (
                     <ExplorerInlineEditor
                         mode={inlineEditor.mode}
                         value={inlineEditor.value}
@@ -2384,35 +2569,66 @@ const dashboardRecentFiles = useMemo(() =>
                     />
                 )}
 
-                {showHomeDashboard && (
-                    <section className="tcloud-drive-home">
+                {false && showHomeDashboard && (
+                    <section className="tcloud-drive-home tcloud-home-v3">
                         <div className="tcloud-drive-home-header tcloud-home-compact-header">
                             <div>
-                                <h2>Início</h2>
-                                <p>Seus arquivos, pastas e itens importantes em um só lugar.</p>
+                                <h2>Arquivos</h2>
+                                <p>Navegue pelos dispositivos e continue de onde parou.</p>
                             </div>
+                            <button type="button" className="tcloud-home-settings-button" onClick={() => setRootView('settings')}>
+                                Configurações
+                            </button>
                         </div>
 
-                        {homeHealth.tone !== 'ok' && (
-                            <section className={`tcloud-home-health is-${homeHealth.tone}`}>
+                        <section className={`tcloud-home-health is-${homeHealth.tone}`}>
                                 <div className="tcloud-home-health-icon">
-                                    {homeHealth.tone === 'danger' ? <CircleAlert className="h-4 w-4" /> : homeHealth.tone === 'offline' ? <CloudOff className="h-4 w-4" /> : <RefreshCw className="h-4 w-4 animate-spin" />}
+                                    {homeHealth.tone === 'danger' ? <CircleAlert className="h-4 w-4" /> : homeHealth.tone === 'offline' ? <CloudOff className="h-4 w-4" /> : homeHealth.tone === 'ok' ? <CheckCircle2 className="h-4 w-4" /> : <RefreshCw className="h-4 w-4 animate-spin" />}
                                 </div>
                                 <div className="tcloud-home-health-copy">
                                     <strong>{homeHealth.title}</strong>
                                     <span>{homeHealth.detail}</span>
+                                    {homeSyncCount > 0 && (
+                                        <div className="tcloud-home-live-progress" aria-label={`${syncOverview?.running ?? 0} em envio e ${syncOverview?.pending ?? 0} na fila`}>
+                                            <span className={(syncOverview?.running ?? 0) > 0 ? 'is-running' : ''} />
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="tcloud-home-health-actions">
                                     {problemCount > 0 ? (
                                         <button type="button" className="is-primary" onClick={() => { setActiveFolderId(null); setRootView('problems'); }}>Revisar</button>
                                     ) : !computerConnected ? (
-                                        <button type="button" className="is-primary" onClick={() => setShowSettings(true)}>Configurar</button>
+                                        <button type="button" className="is-primary" onClick={() => setRootView('settings')}>Configurar</button>
                                     ) : homeSyncCount > 0 ? (
                                         <button type="button" onClick={() => { setSelectedForum(null); setActiveFolderId(null); setRootView('sync'); }}>Ver atividade</button>
                                     ) : null}
                                 </div>
-                            </section>
-                        )}
+                        </section>
+
+                        <div className="tcloud-home-system-strip">
+                            <button type="button" onClick={() => { setSelectedForum(null); setActiveFolderId(null); setRootView('sync'); }}>
+                                <RefreshCw className={`h-4 w-4 ${homeSyncCount > 0 ? 'animate-spin' : ''}`} />
+                                <span><strong>Sincronização em tempo real</strong><small>{homeSyncCount > 0 ? `${syncOverview?.running ?? 0} enviando · ${syncOverview?.pending ?? 0} na fila` : 'Nenhum arquivo pendente'}</small></span>
+                            </button>
+                            <label className="tcloud-home-startup-toggle">
+                                <span><strong>Iniciar com o Windows</strong><small>{startupEnabled ? 'Backup continua com a janela fechada' : 'Ative para manter seus arquivos atualizados'}</small></span>
+                                <input
+                                    type="checkbox"
+                                    checked={startupEnabled}
+                                    onChange={async (event) => {
+                                        const enabled = event.target.checked;
+                                        try {
+                                            const applied = await setWindowsStartupEnabled(enabled);
+                                            queryClient.setQueryData(['windows-startup-enabled'], applied && enabled);
+                                            toast.success(enabled ? 'TCloud iniciará com o Windows e continuará sincronizando em segundo plano.' : 'Inicialização automática desativada.');
+                                        } catch (error) {
+                                            toast.error(`Não foi possível alterar a inicialização: ${String(error)}`);
+                                            void queryClient.invalidateQueries({ queryKey: ['windows-startup-enabled'] });
+                                        }
+                                    }}
+                                />
+                            </label>
+                        </div>
 
                         <div className="tcloud-home-locations" aria-label="Acesso rápido">
                             <button type="button" onClick={() => { setSelectedForum(null); setActiveFolderId(null); setRootView('saved'); }}>
@@ -2441,6 +2657,19 @@ const dashboardRecentFiles = useMemo(() =>
                                 </div>
                             </div>
 
+                            {dashboardRecentMedia.length > 0 && (
+                                <div className="tcloud-desktop-recent-carousel" onMouseEnter={() => setDashboardCarouselPaused(true)} onMouseLeave={() => setDashboardCarouselPaused(false)} onFocus={() => setDashboardCarouselPaused(true)} onBlur={() => setDashboardCarouselPaused(false)}>
+                                    <button type="button" onClick={() => handlePreview(dashboardRecentMedia[activeDashboardCarouselIndex], dashboardRecentMedia)}>
+                                        {dashboardRecentMedia.map((file, index) => (
+                                            <span className={index === activeDashboardCarouselIndex ? 'is-active' : ''} key={file.id}>
+                                                <RecentCarouselImage file={file} />
+                                                <span><strong>{file.name}</strong><small>{file.sizeStr}</small></span>
+                                            </span>
+                                        ))}
+                                    </button>
+                                    <div>{dashboardRecentMedia.map((file, index) => <button type="button" aria-label={`Mostrar ${file.name}`} className={index === activeDashboardCarouselIndex ? 'is-active' : ''} key={file.id} onClick={() => setDashboardCarouselIndex(index)} />)}</div>
+                                </div>
+                            )}
                             <div className="tcloud-quick-grid">
                                 {dashboardRecentFiles.slice(0, 4).map((file) => (
                                     <button
@@ -2491,8 +2720,8 @@ const dashboardRecentFiles = useMemo(() =>
                         <div className="tcloud-all-files-section">
                             <div className="tcloud-section-heading tcloud-section-heading-files">
                                 <div>
-                                    <h3>Meus arquivos</h3>
-                                    <span>Itens da sua nuvem</span>
+                                    <h3>Todos os arquivos</h3>
+                                    <span>Itens recentes da sua nuvem</span>
                                 </div>
                                 <div className="tcloud-home-file-meta">
                                     <button type="button" onClick={() => setRootView('saved')}>
@@ -2536,6 +2765,90 @@ const dashboardRecentFiles = useMemo(() =>
                     </section>
                 )}
 
+                {showHomeDashboard && (
+                    <section className="op-dashboard" aria-label="Painel principal do TCloud">
+                        <header className="op-dashboard-hero">
+                            <div>
+                                <span className="op-eyebrow">Workspace da nuvem</span>
+                                <h1>Painel principal</h1>
+                                <p>{computerConnected ? 'Este computador está conectado e seus arquivos usam a mesma estrutura em todos os dispositivos.' : 'Conecte este computador para manter pastas locais e arquivos da nuvem no mesmo workspace.'}</p>
+                            </div>
+                            <div className="op-hero-actions">
+                                <button type="button" onClick={() => { setActiveFolderId(null); setRootView('sync'); }}><RefreshCw className="h-4 w-4" /> Sincronização</button>
+                                <button type="button" onClick={beginCreateFolder}><FolderOpen className="h-4 w-4" /> Nova pasta</button>
+                                <button type="button" className="is-primary" onClick={handleUploadFromCurrentView}><ArrowRight className="h-4 w-4" /> Fazer upload</button>
+                            </div>
+                        </header>
+
+                        <div className="op-metric-grid">
+                            <button type="button" onClick={() => setRootView('saved')}>
+                                <span>Arquivos na nuvem</span><strong>{dashboardMainFiles.length}</strong><small>itens recentes indexados</small>
+                            </button>
+                            <button type="button" onClick={() => setRootView('sync')}>
+                                <span>Sincronização ativa</span><strong>{syncOverview?.running ?? 0}</strong><small>{syncOverview?.pending ?? 0} aguardando na fila</small>
+                            </button>
+                            <button type="button" onClick={() => setRootView('settings')}>
+                                <span>Dispositivos</span><strong>{Number(Boolean(computerConnected)) + Number(Boolean(forumTree.length))}</strong><small>{computerConnected ? 'computador conectado' : 'configuração necessária'}</small>
+                            </button>
+                            <button type="button" onClick={() => setRootView('vault')}>
+                                <span>Cofre & segurança</span><strong>{problemCount > 0 ? 'Atenção' : 'Protegido'}</strong><small>{problemCount > 0 ? `${problemCount} itens para revisar` : 'nenhum alerta ativo'}</small>
+                            </button>
+                        </div>
+
+                        <div className="op-dashboard-columns">
+                            <div className="op-dashboard-main">
+                                <section className="op-projects">
+                                    <header><div><span className="op-eyebrow">Estrutura</span><h2>Pastas fixadas & dispositivos</h2></div><button type="button" onClick={() => setRootView('saved')}>Ver todos <ArrowRight className="h-3.5 w-3.5" /></button></header>
+                                    <div className="op-project-grid">
+                                        {forumTree.slice(0, 4).map((forum) => (
+                                            <button type="button" key={forum.id} onClick={() => { setActiveFolderId(null); setSelectedForum(forum); }}>
+                                                <FolderOpen className="h-5 w-5" />
+                                                <span><strong>{forum.name}</strong><small>{forum.topics.length} {forum.topics.length === 1 ? 'subpasta' : 'subpastas'}</small></span>
+                                            </button>
+                                        ))}
+                                        {forumTree.length === 0 && <button type="button" onClick={() => setRootView('settings')}><Cloud className="h-5 w-5" /><span><strong>Conectar dispositivo</strong><small>Crie sua primeira estrutura sincronizada</small></span></button>}
+                                    </div>
+                                </section>
+
+                                <section className="op-file-table">
+                                    <header className="op-file-tabs"><strong>Arquivos recentes</strong><button type="button" onClick={() => setRootView('saved')}>Todos</button><button type="button" onClick={() => setRootView('gallery')}>Mídias</button><button type="button" onClick={() => setRootView('favorites')}>Favoritos</button></header>
+                                    <div className="op-file-head"><span>Nome do arquivo</span><span>Origem</span><span>Tamanho</span><span>Estado</span></div>
+                                    {dashboardMainFiles.slice(0, 8).map((file) => (
+                                        <button type="button" className="op-file-row" key={`${file.folder_id ?? 'saved'}:${file.id}`} onClick={() => handlePreview(file, dashboardMainFiles)}>
+                                            <span className="op-file-name"><FileText className="h-4 w-4" /><strong>{file.name}</strong></span>
+                                            <span>{file.folder_id ? 'Pasta TCloud' : 'Nuvem pessoal'}</span>
+                                            <span>{file.sizeStr}</span>
+                                            <span className="op-status"><i />{file.sync_status || 'Sincronizado'}</span>
+                                        </button>
+                                    ))}
+                                    {dashboardMainFiles.length === 0 && <div className="op-table-empty">Nenhum arquivo disponível neste momento.</div>}
+                                    <footer>{dashboardMainFiles.length} itens exibidos <span>Índice local verificado</span></footer>
+                                </section>
+                            </div>
+
+                            <aside className="op-dashboard-inspector">
+                                <section>
+                                    <header><strong>Fila de transferência</strong><span>{homeSyncCount}</span></header>
+                                    <div className="op-transfer-live"><span>{(syncOverview?.running ?? 0) > 0 ? 'Sincronizando agora' : 'Sem transferência ativa'}</span><strong>{syncOverview?.running ?? 0} ativos</strong><i><b style={{ width: `${(syncOverview?.running ?? 0) > 0 ? 58 : 0}%` }} /></i><small>{syncOverview?.pending ?? 0} itens aguardando</small></div>
+                                    <button type="button" onClick={() => setRootView('sync')}>Abrir central de sincronização</button>
+                                </section>
+                                <section>
+                                    <header><strong>Dispositivos</strong><span>{computerConnected ? 'Online' : 'Configurar'}</span></header>
+                                    <button type="button" className="op-device-row" onClick={() => setRootView('settings')}><HardDrive className="h-4 w-4" /><span><strong>Este computador</strong><small>{computerConnected ? 'Conectado ao TCloud' : 'Ainda não conectado'}</small></span><i className={computerConnected ? 'is-online' : ''} /></button>
+                                    {forumTree.slice(0, 3).map((forum) => <button type="button" className="op-device-row" key={forum.id} onClick={() => setSelectedForum(forum)}><Cloud className="h-4 w-4" /><span><strong>{forum.name}</strong><small>{forum.topics.length} pastas disponíveis</small></span><i className="is-online" /></button>)}
+                                </section>
+                                <section className="op-security-card"><LockKeyhole className="h-5 w-5" /><div><strong>Proteção do TCloud</strong><small>Abra o cofre para gerenciar arquivos sensíveis e chaves locais.</small></div><button type="button" onClick={() => setRootView('vault')}>Abrir cofre</button></section>
+                            </aside>
+                        </div>
+                    </section>
+                )}
+
+                {activeFolderId === null && rootView === 'recent' && !hasActiveSearch && activeFilterCount === 0 && (
+                    <section className="tcloud-collection-heading"><div className="tcloud-workspace-icon is-accent"><Clock3 className="h-5 w-5" /></div><div><h2>Recentes</h2><p>Arquivos abertos ou alterados recentemente, sem criar cópias extras.</p></div><span>{displayedFiles.length} item(ns)</span></section>
+                )}
+                {activeFolderId === null && rootView === 'favorites' && !hasActiveSearch && activeFilterCount === 0 && (
+                    <section className="tcloud-collection-heading"><div className="tcloud-workspace-icon is-accent"><Star className="h-5 w-5" /></div><div><h2>Favoritos</h2><p>Atalhos para os arquivos marcados com estrela.</p></div><span>{displayedFiles.length} item(ns)</span></section>
+                )}
                 {activeFolderId === null && rootView === 'gallery' && !hasActiveSearch && activeFilterCount === 0 && (
                     <section className="tcloud-collection-heading"><div className="tcloud-workspace-icon is-accent"><Image className="h-5 w-5" /></div><div><h2>Galeria</h2><p>Fotos e vídeos organizados no mesmo espaço de navegação dos arquivos.</p></div><span>{displayedFiles.length} item(ns)</span></section>
                 )}
@@ -2549,7 +2862,7 @@ const dashboardRecentFiles = useMemo(() =>
                     <ExplorerVaultHeader itemCount={displayedFiles.length} />
                 )}
                 {showUtilityWorkspace && (
-                    <ExplorerUtilityWorkspace view={rootView === 'trash' ? 'trash' : 'sync'} searchTerm={searchTerm} onOpenSyncDetails={() => setShowTCloudSyncCenter(true)} />
+                    <ExplorerUtilityWorkspace view={rootView === 'trash' ? 'trash' : rootView === 'duplicates' ? 'duplicates' : rootView === 'problems' ? 'problems' : 'sync'} searchTerm={searchTerm} onOpenSyncDetails={() => setShowTCloudSyncCenter(true)} />
                 )}
 
                 {(hasActiveSearch || activeFilterCount > 0) && (
@@ -2571,11 +2884,11 @@ const dashboardRecentFiles = useMemo(() =>
                         </div>
                         <div className="min-w-0 flex-1">
                             <h3>{problemCount > 0 ? `${problemCount} ${problemCount === 1 ? 'item precisa' : 'itens precisam'} de atenção` : 'Nenhum problema'}</h3>
-                            <p>{problemCount > 0 ? 'O TCloud já tentou corrigir automaticamente. Você pode tentar novamente ou abrir a sincronização para ver cada item.' : 'O TCloud está cuidando da sincronização automaticamente. Quando algo realmente precisar de você, aparecerá aqui.'}</p>
+                            <p>{problemCount > 0 ? 'O TCloud isolou estes itens para não travar a sincronização. Abra a sincronização para ver o motivo e as opções disponíveis.' : 'O TCloud está cuidando da sincronização automaticamente. Quando algo realmente precisar de você, aparecerá aqui.'}</p>
                         </div>
                         <div className="tcloud-problems-overview-actions">
                             {historicalProblemCount > 0 && <button type="button" onClick={() => void handleCleanupHistoricalProblems()} title="Remove apenas falhas antigas que já foram substituídas por tentativas mais novas"><CheckCircle2 className="h-3.5 w-3.5" /> Limpar {historicalProblemCount} antigo(s)</button>}
-                            {problemCount > 0 && <button type="button" className="is-primary" onClick={() => void handleRetryAllProblems()}><RefreshCw className="h-3.5 w-3.5" /> Tentar novamente</button>}
+
                             <button type="button" onClick={() => { setSelectedForum(null); setActiveFolderId(null); setRootView('sync'); }}>Abrir sincronização</button>
                         </div>
                     </section>
@@ -2594,13 +2907,13 @@ const dashboardRecentFiles = useMemo(() =>
                     onDelete={(id) => void handleExplorerDelete(id)}
                     onDownload={(id, name) => queueDownload(id, name, activeFolderId)}
                     onPreview={handlePreview}
-                    onManualUpload={handleUploadFromCurrentView}
-                    onFolderUpload={handleFolderUploadFromCurrentView}
-                    onCreateFolderRequest={beginCreateFolder}
+                    onManualUpload={canWriteCurrentView ? handleUploadFromCurrentView : undefined}
+                    onFolderUpload={canWriteCurrentView ? handleFolderUploadFromCurrentView : undefined}
+                    onCreateFolderRequest={canWriteCurrentView ? beginCreateFolder : undefined}
                     onRefresh={handleSyncFolders}
                     onCopySelection={handleExplorerCopy}
                     onCutSelection={handleExplorerCut}
-                    onPaste={explorerClipboard ? () => void handleExplorerPaste() : undefined}
+                    onPaste={canWriteCurrentView && explorerClipboard ? () => void handleExplorerPaste() : undefined}
                     showFolderUpload={settings.zipFolders}
                     onToggleSelection={handleToggleSelection}
                     onShare={setShareFile}
@@ -2631,7 +2944,7 @@ const dashboardRecentFiles = useMemo(() =>
                     }}
                     onVersion={async (file) => {
                         await invoke('tcloud_pro_version_add', { messageId: file.id, folderId: file.folder_id ?? activeFolderId, name: file.name, size: file.size, note: 'Snapshot pelo menu de contexto' });
-                        toast.success('VersÃ£o registrada.');
+                        toast.success('Versão registrada.');
                     }}
                     onBulkDownload={handleBulkDownload}
                     onBulkDelete={handleBulkDelete}
@@ -2645,7 +2958,7 @@ const dashboardRecentFiles = useMemo(() =>
                     onSortChange={handleSortChange}
                 />
                 )}
-                {!showUtilityWorkspace && !showHomeDashboard && <ExplorerStatusBar
+                {rootView !== 'settings' && !showUtilityWorkspace && !showHomeDashboard && <ExplorerStatusBar
                     itemCount={displayedFiles.length}
                     selectedCount={selectedIds.length}
 
@@ -2711,22 +3024,11 @@ const dashboardRecentFiles = useMemo(() =>
             />
 
             <Suspense fallback={<LazyOverlayFallback />}>
-            {showSettings && (
-                <SettingsModal
-                    isOpen
-                    onClose={() => setShowSettings(false)}
-                    onOpenOperations={() => { setShowSettings(false); setShowTCloudSyncCenter(true); }}
-                    onOpenAdvanced={() => { setShowSettings(false); setAdvancedInitialTab('index'); setShowAdvancedCenter(true); }}
-                    onOpenSetup={() => setShowTCloudSetup(true)}
-                    isConnected={isConnected}
-                />
-            )}
-
             {showTCloudDashboard && (
                 <TCloudDashboardModal
                     isOpen
                     onClose={() => setShowTCloudDashboard(false)}
-                    onOpenSettings={() => setShowSettings(true)}
+                    onOpenSettings={() => setRootView('settings')}
                 />
             )}
 
@@ -2743,7 +3045,7 @@ const dashboardRecentFiles = useMemo(() =>
                 />
             )}
             {showForumManager && (
-                <TCloudForumManagerModal isOpen onClose={() => setShowForumManager(false)} onChanged={() => void handleSyncFolders(true)} />
+                <TCloudForumManagerModal isOpen onClose={() => setShowForumManager(false)} onChanged={() => { foundation5MutationCompleted("forums"); void handleSyncFolders(true); }} />
             )}
             {showDetailsPanel && selectedIds.length === 1 && (() => {
                 const detailFile = displayedFiles.find((file) => file.id === selectedIds[0] && file.type !== 'folder');
@@ -2756,7 +3058,7 @@ const dashboardRecentFiles = useMemo(() =>
                         onShare={() => setShareFile(detailFile)}
                         onVersion={async () => {
                             await invoke('tcloud_pro_version_add', { messageId: detailFile.id, folderId: detailFile.folder_id ?? activeFolderId, name: detailFile.name, size: detailFile.size, note: 'Snapshot pelo painel de detalhes' });
-                            toast.success('VersÃ£o registrada.');
+                            toast.success('Versão registrada.');
                         }}
                         onOffline={async () => {
                             try {

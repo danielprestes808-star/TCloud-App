@@ -1,0 +1,511 @@
+/*
+ * TCloud Desktop — Obsidian Precision Cloud
+ * Source of truth: Stitch export 15366596888152505957 / DESIGN.md.
+ * This file deliberately replaces every previous visual experiment while the
+ * functional React/Tauri layer remains intact.
+ */
+:root {
+  --op-void: #0b0d13;
+  --op-rail: #0c0f16;
+  --op-stage: #161922;
+  --op-panel: #1e222b;
+  --op-raised: #242838;
+  --op-border: rgb(255 255 255 / .07);
+  --op-border-focus: rgb(255 255 255 / .14);
+  --op-text: #e2e2eb;
+  --op-muted: #a6a5b1;
+  --op-faint: #747582;
+  --op-indigo: #1d4ed8;
+  --op-indigo-strong: #1e40af;
+  --op-cyan: #1d4ed8;
+  --op-violet: #1d4ed8;
+  --op-success: #1d4ed8;
+  --op-warning: #1d4ed8;
+  --op-error: #1d4ed8;
+  --op-sidebar: 292px;
+  --color-app-canvas: var(--op-void);
+  --color-app-sidebar: var(--op-rail);
+  --color-app-surface: var(--op-stage);
+  --color-app-surface-raised: var(--op-panel);
+  --color-app-surface-sunken: #080a0f;
+  --color-app-accent: var(--op-indigo);
+  --color-app-accent-hover: #2563eb;
+  --color-app-accent-soft: rgb(30 64 175 / .18);
+  --color-app-text: var(--op-text);
+  --color-app-text-secondary: var(--op-muted);
+  --color-app-text-tertiary: var(--op-faint);
+  --color-app-border: var(--op-border-focus);
+  --color-app-border-subtle: var(--op-border);
+  --color-app-success: var(--op-success);
+  --color-app-warning: var(--op-warning);
+  --color-app-danger: var(--op-error);
+  /* Bridge the legacy explorer tokens into the new visual system. */
+  --tc-bg: var(--op-void);
+  --tc-surface: var(--op-stage);
+  --tc-surface-2: var(--op-panel);
+  --tc-surface-raised: var(--op-raised);
+  --tc-text: var(--op-text);
+  --tc-text-muted: var(--op-muted);
+  --tc-border: var(--op-border-focus);
+  --tc-primary: var(--op-indigo);
+  --tc-primary-hover: #2563eb;
+  --tc-primary-contrast: #ffffff;
+}
+
+html[data-tcloud-theme="dark"] {
+  --tc-bg: var(--op-void) !important;
+  --tc-surface: var(--op-stage) !important;
+  --tc-surface-2: var(--op-panel) !important;
+  --tc-surface-raised: var(--op-raised) !important;
+  --tc-text: var(--op-text) !important;
+  --tc-text-muted: var(--op-muted) !important;
+  --tc-border: var(--op-border-focus) !important;
+  --tc-primary: var(--op-indigo) !important;
+  --tc-primary-hover: #2563eb !important;
+  --tc-primary-contrast: #ffffff !important;
+  --color-app-accent: var(--op-indigo) !important;
+  --color-app-accent-hover: #2563eb !important;
+  --color-app-accent-soft: rgb(30 64 175 / .18) !important;
+  --color-app-success: var(--op-indigo) !important;
+  --color-app-warning: var(--op-indigo) !important;
+  --color-app-danger: var(--op-indigo) !important;
+  --color-app-info: var(--op-indigo) !important;
+}
+
+html, body, #root { background: var(--op-void) !important; color: var(--op-text) !important; }
+.desktop-shell,
+.desktop-shell *,
+.tcloud-settings-page-shell,
+.tcloud-settings-page-shell * {
+  box-sizing: border-box;
+  font-family: Inter, "Segoe UI Variable Text", "Segoe UI", sans-serif !important;
+}
+.desktop-shell code,
+.desktop-shell kbd,
+.desktop-shell [class*="status"],
+.desktop-shell [class*="metric"],
+.desktop-shell [class*="progress"] {
+  font-variant-numeric: tabular-nums;
+}
+.desktop-shell { background: var(--op-void) !important; }
+.desktop-shell h1,.desktop-shell h2,.desktop-shell h3 { color: var(--op-text) !important; font-family: Inter,"Segoe UI",sans-serif !important; letter-spacing: -.015em !important; }
+.desktop-shell button { border-radius: 4px !important; box-shadow: none !important; }
+.desktop-shell input,.desktop-shell select,.desktop-shell textarea { border-radius: 4px !important; background: #12151e !important; }
+
+.tcloud-explorer-sidebar:not(.is-collapsed) {
+  width: var(--op-sidebar) !important;
+  min-width: var(--op-sidebar) !important;
+  border-right: 1px solid var(--op-border) !important;
+  background: var(--op-void) !important;
+}
+.tcloud-explorer-brand {
+  min-height: 52px !important;
+  border-bottom: 1px solid var(--op-border) !important;
+  padding: 8px 16px !important;
+  background: #0b0d13 !important;
+}
+.tcloud-explorer-brand img { width: 28px !important; height: 28px !important; border-radius: 6px !important; }
+.tcloud-explorer-brand strong { font-size: 13px !important; font-weight: 650 !important; }
+.tcloud-explorer-brand small { color: var(--op-faint) !important; font-size: 9px !important; }
+.tcloud-sidebar-primary-action { display: none !important; }
+.tcloud-explorer-sidebar-scroll { padding: 15px 10px !important; }
+.tcloud-explorer-sidebar-section-title,
+.tcloud-explorer-sidebar [class*="section-title"] {
+  color: var(--op-faint) !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase;
+}
+.tcloud-explorer-nav-item {
+  min-height: 36px !important;
+  margin: 1px 0 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  color: #c9c8d2 !important;
+  font-size: 13px !important;
+}
+.tcloud-explorer-nav-item:hover { background: rgb(255 255 255 / .04) !important; color: var(--op-text) !important; }
+.tcloud-explorer-nav-item.is-active { background: #2b2d35 !important; color: var(--op-text) !important; }
+.tcloud-explorer-nav-item.is-active::before { display: none !important; }
+.tcloud-sidebar-more-toggle,.tcloud-sidebar-more-items { display:none !important; }
+.tcloud-device-root-card { min-height: 42px !important; margin: 1px 0 !important; border: 0 !important; border-radius: 4px !important; background: transparent !important; }
+.tcloud-device-root-card:hover,.tcloud-device-root-card.is-active { background: rgb(30 64 175 / .18) !important; }
+.tcloud-device-root-icon,
+.tcloud-device-root-icon.is-phone {
+  background: rgb(30 64 175 / .24) !important;
+  color: #3b82f6 !important;
+}
+.tcloud-explorer-nav-badge,
+.tcloud-explorer-nav-badge.is-danger,
+.tcloud-explorer-nav-badge.is-busy {
+  background: rgb(30 64 175 / .24) !important;
+  color: #60a5fa !important;
+}
+.tcloud-explorer-sidebar-footer { border-top: 1px solid var(--op-border) !important; background: var(--op-void) !important; }
+
+.tcloud-main-pane { min-width: 0; background: var(--op-void) !important; }
+.tcloud-explorer-topbar {
+  min-height: 52px !important;
+  border-bottom: 1px solid var(--op-border) !important;
+  background: rgb(11 13 19 / .92) !important;
+  backdrop-filter: blur(16px);
+}
+.tcloud-explorer-commandbar { min-height: 42px !important; border-bottom: 1px solid var(--op-border) !important; background: var(--op-rail) !important; }
+.tcloud-explorer-search input { height: 34px !important; border: 1px solid var(--op-border) !important; background: #171a22 !important; }
+.tcloud-explorer-search input:focus { border-color: var(--op-indigo) !important; box-shadow: 0 0 0 1px var(--op-indigo) !important; }
+
+/* One continuous chrome: title/navigation bars use neutral obsidian tones. */
+.tcloud-explorer-header,
+.tcloud-explorer-topbar,
+.tcloud-topbar { background: rgb(11 13 19 / .94) !important; background-image: none !important; }
+.tcloud-explorer-commandbar,
+.tcloud-explorer-statusbar,
+.tcloud-explorer-status-bar,
+.tcloud-statusbar { background: var(--op-rail) !important; background-image: none !important; }
+
+/* Primary actions are indigo. Cyan is reserved for transfer/online telemetry. */
+.tcloud-explorer-command.is-primary-action,
+.tcloud-explorer-command.is-primary,
+.op-dashboard button.is-primary,
+.desktop-shell .toolbar-upload-action {
+  border-color: var(--op-indigo) !important;
+  background: var(--op-indigo) !important;
+  color: #fff !important;
+}
+.tcloud-explorer-command.is-primary-action:hover,
+.tcloud-explorer-command.is-primary:hover,
+.op-dashboard button.is-primary:hover,
+.desktop-shell .toolbar-upload-action:hover:not(:disabled) {
+  border-color: #2563eb !important;
+  background: #2563eb !important;
+}
+
+.tcloud-home-v3 {
+  display: grid !important;
+  width: 100% !important;
+  max-width: 1440px !important;
+  grid-template-columns: minmax(0,1fr) 350px !important;
+  grid-template-areas: "heading heading" "health health" "locations locations" "recent side" "files side" !important;
+  align-content: start;
+  gap: 16px !important;
+  margin: 0 auto !important;
+  padding: 20px 24px 32px !important;
+  background: var(--op-void) !important;
+}
+.tcloud-home-v3 > .tcloud-home-compact-header { grid-area: heading; }
+.tcloud-home-v3 > .tcloud-home-health { grid-area: health; }
+.tcloud-home-v3 > .tcloud-home-system-strip { grid-area: side; align-self: start; }
+.tcloud-home-v3 > .tcloud-home-locations { grid-area: locations; }
+.tcloud-home-v3 > .tcloud-quick-access { grid-area: recent; }
+.tcloud-home-v3 > .tcloud-favorite-strip { grid-area: side; margin-top: 116px !important; align-self: start; }
+.tcloud-home-v3 > .tcloud-all-files-section { grid-area: files; }
+.tcloud-home-compact-header { min-height: 72px !important; margin: 0 !important; border: 1px solid var(--op-border) !important; border-radius: 6px !important; padding: 16px 20px !important; background: #191c24 !important; }
+.tcloud-home-compact-header h2 { font-size: 20px !important; font-weight: 650 !important; }
+.tcloud-home-compact-header p { margin-top: 4px !important; color: var(--op-muted) !important; font-size: 12px !important; }
+.tcloud-home-settings-button { display: none !important; }
+.tcloud-home-health,.tcloud-home-system-strip,.tcloud-home-locations>button,.tcloud-quick-access,.tcloud-favorite-strip,.tcloud-all-files-section {
+  border: 1px solid var(--op-border) !important;
+  border-radius: 6px !important;
+  background: #181b23 !important;
+  box-shadow: 0 6px 16px rgb(0 0 0 / .16) !important;
+}
+.tcloud-home-health { min-height: 52px !important; margin: 0 !important; padding: 9px 12px !important; }
+.tcloud-home-health.is-danger { border-left: 2px solid var(--op-error) !important; }
+.tcloud-home-health-icon { width: 30px !important; height: 30px !important; border-radius: 4px !important; background: rgb(124 124 255 / .10) !important; }
+.tcloud-home-locations { display:grid !important; grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:12px !important; margin:0 !important; }
+.tcloud-home-locations>button { min-height:116px !important; grid-template-columns:36px minmax(0,1fr) !important; align-content:space-between; padding:14px !important; }
+.tcloud-home-locations>button:hover { border-color: var(--op-border-focus) !important; background:#20232c !important; }
+.tcloud-home-locations>button>svg { color:var(--op-indigo) !important; }
+.tcloud-home-locations strong { font-size:13px !important; }.tcloud-home-locations small { font-size:10px !important; color:var(--op-muted) !important; }
+.tcloud-quick-access,.tcloud-all-files-section { margin:0 !important; padding:14px !important; }
+.tcloud-section-heading h3 { font-size:14px !important; font-weight:650 !important; }
+.tcloud-desktop-recent-carousel { height:180px !important; min-height:180px !important; border-radius:4px !important; background:#0c0e14 !important; }
+.tcloud-desktop-recent-carousel>button { height:152px !important; }
+.tcloud-quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:6px !important; }
+.tcloud-quick-card { min-height:46px !important; border-radius:3px !important; background:#1e212a !important; }
+.tcloud-home-file-grid { display:block !important; overflow:hidden; border:1px solid var(--op-border) !important; border-radius:4px !important; padding:0 !important; }
+.tcloud-home-file-tile { width:100%; min-height:38px !important; border:0 !important; border-bottom:1px solid var(--op-border) !important; border-radius:0 !important; background:#181b23 !important; }
+.tcloud-home-file-tile:hover { background:rgb(124 124 255 / .08) !important; }
+.tcloud-home-file-tile:last-child { border-bottom:0 !important; }
+.tcloud-explorer-statusbar { min-height:26px !important; border-top:1px solid var(--op-border) !important; background:rgb(11 13 19 / .88) !important; backdrop-filter:blur(16px); }
+
+.tcloud-settings-page-shell { position:absolute !important; inset:0 0 0 var(--op-sidebar) !important; background:var(--op-void) !important; backdrop-filter:none !important; }
+.tcloud-settings-page { width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; border:0 !important; border-radius:0 !important; background:var(--op-void) !important; }
+.tcloud-settings-header { min-height:58px !important; background:#0f1219 !important; }
+.tcloud-settings-sidebar { width:230px !important; min-width:230px !important; border-right:1px solid var(--op-border) !important; background:#0c0f16 !important; }
+.tcloud-settings-content { background:var(--op-void) !important; }
+
+@media(max-width:1100px){
+  :root{--op-sidebar:240px}.tcloud-home-v3{grid-template-columns:1fr !important;grid-template-areas:"heading" "health" "locations" "recent" "side" "files" !important}.tcloud-home-locations{grid-template-columns:repeat(2,minmax(0,1fr)) !important}.tcloud-home-v3>.tcloud-favorite-strip{margin-top:0 !important}}
+
+/* All files / dense explorer */
+.tcloud-explorer { padding: 14px 18px 24px !important; background: var(--op-void) !important; }
+.tcloud-explorer-group-summary { min-height: 28px !important; color: var(--op-faint) !important; font-size: 11px !important; font-family: "JetBrains Mono",Consolas,monospace !important; }
+.tcloud-list-shell { border: 1px solid var(--op-border) !important; border-radius: 6px !important; background: var(--op-stage) !important; }
+.tcloud-details-header {
+  min-height: 32px !important;
+  border-bottom: 1px solid var(--op-border) !important;
+  background: #1d2029 !important;
+  color: var(--op-muted) !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase;
+}
+.tcloud-list-row,.tcloud-file-list-item { min-height: 38px !important; border-bottom: 1px solid var(--op-border) !important; border-radius: 0 !important; background: transparent !important; }
+.tcloud-list-row:hover,.tcloud-file-list-item:hover { background: rgb(255 255 255 / .03) !important; }
+.tcloud-list-row.is-selected,.tcloud-file-list-item.is-selected { background: rgb(99 102 241 / .12) !important; box-shadow: inset 2px 0 var(--op-indigo-strong) !important; }
+.tcloud-file-card { border: 1px solid var(--op-border) !important; border-radius: 6px !important; background: #191c24 !important; box-shadow: none !important; }
+.tcloud-file-card:hover { border-color: var(--op-border-focus) !important; background: #20232c !important; transform: none !important; }
+.tcloud-file-card.is-selected { border-color: var(--op-indigo) !important; background: rgb(99 102 241 / .11) !important; }
+
+/* Sync workspace / Mesh telemetry */
+.tcloud-workspace-view { padding: 20px 24px 32px !important; background: var(--op-void) !important; }
+.tcloud-workspace-heading {
+  min-height: 82px !important;
+  margin-bottom: 16px !important;
+  border: 1px solid var(--op-border) !important;
+  border-radius: 6px !important;
+  padding: 14px 16px !important;
+  background: linear-gradient(100deg,#171a22,#17232c) !important;
+}
+.tcloud-workspace-heading h2 { font-size: 19px !important; font-weight: 650 !important; }
+.tcloud-workspace-heading p { margin-top: 3px !important; color: var(--op-muted) !important; font-size: 11px !important; }
+.tcloud-workspace-icon { border-radius: 4px !important; background: rgb(56 189 248 / .10) !important; color: var(--op-cyan) !important; }
+.tcloud-workspace-actions button,.tcloud-workspace-row-actions button,.tcloud-workspace-footer button { min-height: 30px !important; border: 1px solid var(--op-border) !important; border-radius: 4px !important; background: #252831 !important; }
+.tcloud-workspace-actions button:hover,.tcloud-workspace-row-actions button:hover { border-color: var(--op-border-focus) !important; background: #2d303a !important; }
+.tcloud-workspace-metrics { grid-template-columns: repeat(4,minmax(0,1fr)) !important; gap: 10px !important; margin-bottom: 16px !important; }
+.tcloud-workspace-metrics>div { min-height: 86px !important; border: 1px solid var(--op-border) !important; border-radius: 6px !important; padding: 13px !important; background: #191c24 !important; }
+.tcloud-workspace-metrics span { color: var(--op-muted) !important; font-size: 10px !important; letter-spacing: .04em; text-transform: uppercase; }
+.tcloud-workspace-metrics strong { margin-top: 10px; color: var(--op-text) !important; font-family: "JetBrains Mono",Consolas,monospace !important; font-size: 20px !important; }
+.tcloud-workspace-list { overflow: hidden; border: 1px solid var(--op-border) !important; border-radius: 6px !important; background: var(--op-stage) !important; }
+.tcloud-workspace-list-head { min-height: 34px !important; background: #1d2029 !important; color: var(--op-muted) !important; font-size: 10px !important; letter-spacing: .06em; text-transform: uppercase; }
+.tcloud-workspace-list-row { min-height: 42px !important; border-bottom-color: var(--op-border) !important; }
+.tcloud-workspace-list-row:hover { background: rgb(255 255 255 / .03) !important; }
+.tcloud-workspace-progress i { height: 3px !important; border-radius: 2px !important; background: rgb(255 255 255 / .08) !important; }
+.tcloud-workspace-progress i b { background: linear-gradient(90deg,var(--op-indigo-strong),var(--op-cyan)) !important; }
+
+/* Vault */
+.tcloud-vault-strip { margin: 18px 24px 10px !important; border: 1px solid rgb(30 64 175 / .32) !important; border-radius: 6px !important; background: #111827 !important; box-shadow: none !important; }
+.tcloud-vault-strip button { border-radius: 4px !important; }
+.tcloud-vault-strip.is-unlocked { border-left: 2px solid var(--op-violet) !important; }
+
+/* Settings is a first-class workspace, not a modal. */
+.tcloud-settings-page-shell { z-index: 40 !important; }
+.tcloud-settings-page-shell {
+  inset: 0 0 0 var(--op-sidebar) !important;
+  background: var(--op-void) !important;
+  backdrop-filter: none !important;
+}
+.tcloud-main-pane > .tcloud-settings-page-shell.is-embedded {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 60 !important;
+}
+.tcloud-settings-page { background: var(--op-void) !important; }
+.tcloud-settings-header {
+  border-bottom-color: var(--op-border) !important;
+  padding: 10px 20px !important;
+  background: var(--op-rail) !important;
+}
+.tcloud-settings-header h2 { font-size: 18px !important; }
+.tcloud-settings-sidebar { padding: 12px 8px !important; background: var(--op-rail) !important; }
+.tcloud-settings-nav-group>span { color: var(--op-faint) !important; font-size: 9px !important; letter-spacing: .08em !important; }
+.tcloud-settings-nav-group button { min-height: 34px !important; border-radius: 4px !important; }
+.tcloud-settings-nav-group button.is-active { background: #2b2d35 !important; color: var(--op-text) !important; }
+.tcloud-settings-content { padding: 20px 24px 36px !important; }
+.tcloud-settings-content section,.tcloud-simple-hero,.tcloud-computer-connect,.tcloud-simple-status-grid>*,.tcloud-simple-action-grid>* { border-color: var(--op-border) !important; border-radius: 6px !important; background: #191c24 !important; box-shadow: none !important; }
+.tcloud-settings-content [class*="rounded-lg"],.tcloud-settings-content [class*="rounded-xl"] { border-radius: 6px !important; }
+.tcloud-settings-content input[type="range"] { accent-color: var(--op-indigo) !important; }
+.tcloud-settings-footer { background: var(--op-rail) !important; }
+.tcloud-explorer-footer-row.is-active {
+  border-color: rgb(30 64 175 / .55) !important;
+  background: rgb(30 64 175 / .18) !important;
+  color: var(--op-text) !important;
+}
+
+/* Media player */
+.tcloud-viewer-overlay { left: var(--op-sidebar) !important; background: var(--op-void) !important; backdrop-filter: none !important; }
+.tcloud-viewer-overlay>div { width: 100% !important; height: 100% !important; max-width: none !important; padding: 18px 24px 30px !important; }
+.tcloud-viewer-overlay .viewer-panel { max-height: calc(100vh - 130px) !important; border: 1px solid var(--op-border) !important; border-radius: 6px !important; background: #080a0f !important; box-shadow: none !important; }
+.tcloud-viewer-overlay .viewer-toolbar { top: 10px !important; right: 24px !important; }
+.tcloud-viewer-overlay .viewer-control,.tcloud-viewer-overlay .viewer-navigation { border: 1px solid var(--op-border) !important; border-radius: 4px !important; background: #242730 !important; }
+
+@media(max-width:900px){
+  .tcloud-workspace-metrics{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+  .tcloud-viewer-overlay{left:0 !important}
+}
+
+/* Structural dashboard rebuilt from the Stitch screen. */
+.op-dashboard{flex:1;overflow:auto;padding:20px 24px 36px;background:var(--op-void);color:var(--op-text)}
+.op-dashboard button{color:inherit}.op-eyebrow{display:block;margin-bottom:5px;color:var(--op-cyan);font:600 10px/14px "JetBrains Mono",Consolas,monospace!important;letter-spacing:.08em;text-transform:uppercase}
+.op-dashboard-hero{display:flex;min-height:116px;align-items:center;justify-content:space-between;gap:24px;border:1px solid var(--op-border);border-radius:6px;padding:18px 20px;background:#191c24}
+.op-dashboard-hero>div:first-child{max-width:650px}.op-dashboard-hero h1{margin:0;font-size:22px!important;font-weight:650!important}.op-dashboard-hero p{margin:6px 0 0;color:var(--op-muted);font-size:13px;line-height:1.45}
+.op-hero-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.op-hero-actions button{display:flex;min-height:34px;align-items:center;gap:7px;border:1px solid var(--op-border);padding:7px 11px;background:#262932;font-size:12px;font-weight:600}.op-hero-actions button:hover{border-color:var(--op-border-focus);background:#30333d}.op-hero-actions button.is-primary{border-color:var(--op-indigo)!important;background:var(--op-indigo)!important;color:#fff!important}
+.op-metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.op-metric-grid>button{display:flex;min-height:118px;flex-direction:column;align-items:flex-start;border:1px solid var(--op-border);border-radius:6px;padding:15px;background:#191c24;text-align:left}.op-metric-grid>button:hover{border-color:var(--op-border-focus);background:#1e212a}.op-metric-grid span{color:var(--op-muted);font-size:10px;font-weight:650;letter-spacing:.05em;text-transform:uppercase}.op-metric-grid strong{margin-top:auto;font:600 24px/30px "JetBrains Mono",Consolas,monospace!important}.op-metric-grid small{margin-top:2px;color:var(--op-muted);font:400 10px/14px "JetBrains Mono",Consolas,monospace!important}
+.op-dashboard-columns{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px}.op-dashboard-main{display:flex;min-width:0;flex-direction:column;gap:16px}.op-projects,.op-file-table,.op-dashboard-inspector>section{border:1px solid var(--op-border);border-radius:6px;background:#181b23}.op-projects{padding:14px}.op-projects>header,.op-dashboard-inspector section>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.op-projects h2{margin:0;font-size:14px!important}.op-projects>header>button{display:flex;align-items:center;gap:5px;color:var(--op-cyan);font-size:11px}.op-project-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}.op-project-grid>button{display:flex;min-height:106px;flex-direction:column;align-items:flex-start;justify-content:space-between;border:1px solid var(--op-border);border-radius:5px;padding:12px;background:#1d2028;text-align:left}.op-project-grid>button:hover{border-color:var(--op-border-focus);background:#232630}.op-project-grid svg{color:var(--op-indigo)}.op-project-grid span,.op-project-grid strong,.op-project-grid small{display:block;max-width:100%}.op-project-grid strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.op-project-grid small{margin-top:3px;color:var(--op-muted);font:400 10px/14px "JetBrains Mono",Consolas,monospace!important}
+.op-file-table{overflow:hidden}.op-file-tabs{display:flex;min-height:52px;align-items:center;gap:6px;border-bottom:1px solid var(--op-border);padding:8px 12px;background:#1b1e26}.op-file-tabs>strong{margin-right:auto;font-size:13px}.op-file-tabs button{min-height:28px;padding:4px 9px;color:var(--op-muted);font-size:11px}.op-file-tabs button:hover{background:rgb(255 255 255/.05);color:var(--op-text)}.op-file-head,.op-file-row{display:grid;grid-template-columns:minmax(240px,1.5fr) minmax(120px,.7fr) 90px 130px;align-items:center;gap:10px;padding:0 12px}.op-file-head{min-height:30px;border-bottom:1px solid var(--op-border);background:#1d2029;color:var(--op-muted);font-size:9px;font-weight:650;letter-spacing:.06em;text-transform:uppercase}.op-file-row{width:100%;min-height:42px;border:0;border-bottom:1px solid var(--op-border);border-radius:0!important;background:transparent;text-align:left;font-size:11px}.op-file-row:hover{background:rgb(255 255 255/.03)}.op-file-name{display:flex;min-width:0;align-items:center;gap:8px}.op-file-name svg{flex:none;color:var(--op-indigo)}.op-file-name strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.op-file-row>span:not(.op-file-name){overflow:hidden;color:var(--op-muted);font-family:"JetBrains Mono",Consolas,monospace!important;text-overflow:ellipsis;white-space:nowrap}.op-status{display:flex!important;align-items:center;gap:5px;color:var(--op-cyan)!important}.op-status i{width:6px;height:6px;border-radius:999px;background:var(--op-cyan)}.op-file-table>footer{display:flex;min-height:30px;align-items:center;justify-content:space-between;padding:0 12px;color:var(--op-muted);font:400 10px/14px "JetBrains Mono",Consolas,monospace!important}.op-table-empty{padding:32px;color:var(--op-muted);font-size:12px;text-align:center}
+.op-dashboard-inspector{display:flex;flex-direction:column;gap:14px}.op-dashboard-inspector>section{padding:14px}.op-dashboard-inspector section>header{margin-bottom:12px}.op-dashboard-inspector section>header strong{font-size:13px}.op-dashboard-inspector section>header span{color:var(--op-cyan);font:500 10px/14px "JetBrains Mono",Consolas,monospace!important}.op-dashboard-inspector section>button:not(.op-device-row){width:100%;min-height:30px;margin-top:10px;border:1px solid var(--op-border);background:#242730;font-size:11px}.op-transfer-live{border:1px solid var(--op-border);border-radius:4px;padding:11px;background:#14171e}.op-transfer-live span,.op-transfer-live strong,.op-transfer-live small{display:block;font-size:10px}.op-transfer-live strong{margin-top:3px;color:var(--op-cyan)}.op-transfer-live i{display:block;height:3px;margin:10px 0 6px;background:rgb(255 255 255/.08)}.op-transfer-live i b{display:block;height:100%;background:var(--op-indigo)}.op-transfer-live small{color:var(--op-muted);font-family:"JetBrains Mono",Consolas,monospace!important}.op-device-row{display:grid;width:100%;grid-template-columns:20px minmax(0,1fr) 8px;align-items:center;gap:8px;border:0;border-top:1px solid var(--op-border);border-radius:0!important;padding:9px 4px;background:transparent;text-align:left}.op-device-row:first-of-type{border-top:0}.op-device-row span,.op-device-row strong,.op-device-row small{display:block;min-width:0}.op-device-row strong{font-size:11px}.op-device-row small{margin-top:2px;overflow:hidden;color:var(--op-muted);font:400 9px/13px "JetBrains Mono",Consolas,monospace!important;text-overflow:ellipsis;white-space:nowrap}.op-device-row>i{width:7px;height:7px;border-radius:999px;background:var(--op-faint)}.op-device-row>i.is-online{background:var(--op-cyan)}.op-security-card{display:grid!important;grid-template-columns:24px 1fr;gap:9px;border-color:rgb(30 64 175/.32)!important}.op-security-card>svg{color:var(--op-violet)}.op-security-card strong,.op-security-card small{display:block}.op-security-card strong{font-size:12px}.op-security-card small{margin-top:4px;color:var(--op-muted);font-size:10px;line-height:1.45}.op-security-card>button{grid-column:1/-1}
+@media(max-width:1250px){.op-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.op-dashboard-columns{grid-template-columns:1fr}.op-dashboard-inspector{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.op-project-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Continuous application chrome and shared alignment grid. */
+.tcloud-explorer-sidebar:not(.is-collapsed),
+.tcloud-explorer-brand,
+.tcloud-explorer-sidebar-scroll,
+.tcloud-explorer-sidebar-footer {
+  background: var(--op-rail) !important;
+  background-image: none !important;
+}
+.tcloud-explorer-brand,
+.tcloud-explorer-sidebar-footer { border-color: var(--op-border) !important; }
+.tcloud-explorer-topbar,
+.tcloud-explorer-header,
+.tcloud-explorer-commandbar,
+.tcloud-topbar {
+  background: var(--op-rail) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+}
+.tcloud-explorer-topbar,
+.tcloud-explorer-header { border-bottom-color: transparent !important; }
+.tcloud-explorer-commandbar { border-top: 0 !important; border-bottom-color: var(--op-border) !important; }
+
+/* The first card on each dashboard column shares one baseline. */
+.op-dashboard-columns { align-items: start; gap: 16px !important; }
+.op-dashboard-main,
+.op-dashboard-inspector { gap: 16px !important; }
+.op-projects,
+.op-dashboard-inspector > section:first-child {
+  width: 100%;
+  min-height: 202px;
+  height: 202px;
+}
+.op-dashboard-inspector > section:first-child {
+  display: flex;
+  flex-direction: column;
+}
+.op-dashboard-inspector > section:first-child > button:last-child { margin-top: auto !important; }
+
+/* Reusable equal-height card rhythm for Files, Sync, Vault and Settings. */
+.tcloud-workspace-metrics,
+.tcloud-sync-summary-grid,
+.tcloud-simple-status-grid,
+.tcloud-simple-action-grid,
+.tcloud-settings-friendly-grid {
+  align-items: stretch !important;
+  grid-auto-rows: 1fr;
+}
+.tcloud-workspace-metrics > *,
+.tcloud-sync-summary-grid > *,
+.tcloud-simple-status-grid > *,
+.tcloud-simple-action-grid > *,
+.tcloud-settings-friendly-grid > * {
+  height: 100% !important;
+  margin: 0 !important;
+}
+.tcloud-explorer-content,
+.tcloud-settings-content,
+.tcloud-workspace-page { scrollbar-gutter: stable; }
+
+@media(max-width:1250px){
+  .op-projects,
+  .op-dashboard-inspector > section:first-child { height:auto; min-height:0; }
+}
+@media(max-width:900px){
+  .tcloud-settings-page-shell { inset-left: 0 !important; left: 0 !important; }
+}
+
+/* Unified Windows-style application chrome. The sidebar brand and the two
+   toolbar rows end on the same baseline, so pages no longer look detached. */
+:root { --op-chrome: #0c0f16; --op-chrome-control: #151923; }
+.desktop-shell .tcloud-explorer-brand {
+  min-height: 79px !important;
+  height: 79px !important;
+  border-bottom: 1px solid var(--op-border) !important;
+  background: var(--op-chrome) !important;
+}
+.desktop-shell .tcloud-explorer-header,
+.desktop-shell .tcloud-explorer-location-row,
+.desktop-shell .tcloud-explorer-command-row,
+.desktop-shell .tcloud-explorer-sidebar,
+.desktop-shell .tcloud-explorer-sidebar-scroll,
+.desktop-shell .tcloud-explorer-sidebar-footer,
+.desktop-shell .tcloud-settings-header,
+.desktop-shell .tcloud-settings-sidebar,
+.desktop-shell .tcloud-settings-footer {
+  background: var(--op-chrome) !important;
+  background-image: none !important;
+}
+.desktop-shell .tcloud-explorer-location-row {
+  min-height: 43px !important;
+  height: 43px !important;
+  border-bottom: 1px solid var(--op-border) !important;
+}
+.desktop-shell .tcloud-explorer-command-row {
+  min-height: 36px !important;
+  height: 36px !important;
+  border-top: 0 !important;
+  border-bottom: 1px solid var(--op-border) !important;
+}
+.desktop-shell .tcloud-explorer-search {
+  height: 32px !important;
+  border: 1px solid var(--op-border) !important;
+  border-radius: 4px !important;
+  background: var(--op-chrome-control) !important;
+  padding: 0 9px !important;
+}
+.desktop-shell .tcloud-explorer-search:focus-within {
+  border-color: #1d4ed8 !important;
+  box-shadow: 0 0 0 1px rgb(29 78 216 / .28) !important;
+}
+.desktop-shell .tcloud-explorer-search input,
+.desktop-shell .tcloud-explorer-search input:focus {
+  height: 30px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* Embedded settings participates in the same main-pane flow instead of
+   covering the shared toolbar with a second, differently colored window. */
+.desktop-shell .tcloud-main-pane > .tcloud-settings-page-shell.is-embedded {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 1 !important;
+  display: flex !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  background: var(--op-void) !important;
+}
+.desktop-shell .tcloud-settings-page-shell.is-embedded > .tcloud-settings-page {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+.desktop-shell .tcloud-settings-page-shell.is-embedded .tcloud-settings-header {
+  min-height: 54px !important;
+  height: 54px !important;
+  border-bottom: 1px solid var(--op-border) !important;
+}
+
+/* Attention Center: errors remain readable and action buttons line up even
+   when paths or backend messages are long. */
+.tcloud-workspace-view.is-attention-center .tcloud-workspace-heading {
+  background: #151923 !important;
+}
+.tcloud-workspace-view.is-attention-center .tcloud-workspace-name small {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  color: var(--op-muted) !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.tcloud-workspace-view.is-attention-center .tcloud-workspace-list-row.is-sync {
+  min-height: 54px !important;
+}
+.tcloud-workspace-view.is-attention-center .tcloud-workspace-row-actions {
+  justify-content: flex-end !important;
+}
