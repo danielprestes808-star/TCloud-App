@@ -1,6 +1,6 @@
-use tauri::{AppHandle, Manager};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tauri::{AppHandle, Manager};
 
 pub type DbConnection = Arc<Mutex<sqlite::Connection>>;
 
@@ -20,7 +20,10 @@ const MAX_DB_INIT_RETRIES: u32 = 5;
 const STABILITY_MIGRATION_BACKUP_REVISION: &str = "12.9.7-sync-reliability";
 const STABILITY_BACKUP_RETENTION: usize = 5;
 
-fn ensure_stability_install_id(app_data_dir: &std::path::Path, recovery_dir: &std::path::Path) -> Result<String, String> {
+fn ensure_stability_install_id(
+    app_data_dir: &std::path::Path,
+    recovery_dir: &std::path::Path,
+) -> Result<String, String> {
     std::fs::create_dir_all(recovery_dir).map_err(|error| error.to_string())?;
     let app_id_path = app_data_dir.join("stability-install-id.txt");
     let recovery_id_path = recovery_dir.join("stability-install-id.txt");
@@ -36,7 +39,12 @@ fn ensure_stability_install_id(app_data_dir: &std::path::Path, recovery_dir: &st
         }
     }
     let nanos = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    let id = format!("{:x}-{}-{:016x}", nanos, std::process::id(), rand::random::<u64>());
+    let id = format!(
+        "{:x}-{}-{:016x}",
+        nanos,
+        std::process::id(),
+        rand::random::<u64>()
+    );
     std::fs::write(&app_id_path, format!("{}\n", id)).map_err(|error| error.to_string())?;
     std::fs::write(&recovery_id_path, format!("{}\n", id)).map_err(|error| error.to_string())?;
     Ok(id)
@@ -44,52 +52,92 @@ fn ensure_stability_install_id(app_data_dir: &std::path::Path, recovery_dir: &st
 
 fn verify_sqlite_backup(path: &std::path::Path) -> Result<(), String> {
     let backup = sqlite::open(path).map_err(|error| error.to_string())?;
-    let mut statement = backup.prepare("PRAGMA quick_check(1)").map_err(|error| error.to_string())?;
-    if matches!(statement.next().map_err(|error| error.to_string())?, sqlite::State::Row) {
-        let status = statement.read::<String, _>(0).map_err(|error| error.to_string())?;
-        if status.eq_ignore_ascii_case("ok") { return Ok(()); }
+    let mut statement = backup
+        .prepare("PRAGMA quick_check(1)")
+        .map_err(|error| error.to_string())?;
+    if matches!(
+        statement.next().map_err(|error| error.to_string())?,
+        sqlite::State::Row
+    ) {
+        let status = statement
+            .read::<String, _>(0)
+            .map_err(|error| error.to_string())?;
+        if status.eq_ignore_ascii_case("ok") {
+            return Ok(());
+        }
         return Err(format!("SQLite backup quick_check returned: {}", status));
     }
     Err("SQLite backup quick_check did not return a result".to_string())
 }
 
 fn prune_stability_backups(directory: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(directory) else { return; };
-    let mut files = entries.filter_map(Result::ok).filter_map(|entry| {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("db") { return None; }
-        let modified = entry.metadata().ok()?.modified().ok()?;
-        Some((modified, path))
-    }).collect::<Vec<_>>();
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut files = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("db") {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect::<Vec<_>>();
     files.sort_by_key(|(modified, _)| *modified);
     while files.len() > STABILITY_BACKUP_RETENTION {
         let (_, path) = files.remove(0);
         if let Err(error) = std::fs::remove_file(&path) {
-            log::warn!("Could not prune old TCloud stability backup {}: {}", path.display(), error);
+            log::warn!(
+                "Could not prune old TCloud stability backup {}: {}",
+                path.display(),
+                error
+            );
         }
     }
 }
 
-fn create_pre_migration_backup(conn: &sqlite::Connection, db_path: &std::path::Path, recovery_dir: &std::path::Path, database_preexisted: bool) -> Result<Option<std::path::PathBuf>, String> {
-    if !database_preexisted || !db_path.is_file() { return Ok(None); }
+fn create_pre_migration_backup(
+    conn: &sqlite::Connection,
+    db_path: &std::path::Path,
+    recovery_dir: &std::path::Path,
+    database_preexisted: bool,
+) -> Result<Option<std::path::PathBuf>, String> {
+    if !database_preexisted || !db_path.is_file() {
+        return Ok(None);
+    }
     std::fs::create_dir_all(recovery_dir).map_err(|error| error.to_string())?;
-    let marker = recovery_dir.join(format!("stability-backup-{}.done", STABILITY_MIGRATION_BACKUP_REVISION));
+    let marker = recovery_dir.join(format!(
+        "stability-backup-{}.done",
+        STABILITY_MIGRATION_BACKUP_REVISION
+    ));
     if marker.is_file() {
         let recorded = std::fs::read_to_string(&marker).unwrap_or_default();
-        if std::path::Path::new(recorded.trim()).is_file() { return Ok(None); }
+        if std::path::Path::new(recorded.trim()).is_file() {
+            return Ok(None);
+        }
         let _ = std::fs::remove_file(&marker);
     }
-    conn.execute("PRAGMA wal_checkpoint(FULL)").map_err(|error| error.to_string())?;
+    conn.execute("PRAGMA wal_checkpoint(FULL)")
+        .map_err(|error| error.to_string())?;
     let backup_dir = recovery_dir.join("stability-backups");
     std::fs::create_dir_all(&backup_dir).map_err(|error| error.to_string())?;
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-    let backup_path = backup_dir.join(format!("shares-pre-{}-{}.db", STABILITY_MIGRATION_BACKUP_REVISION, stamp));
+    let backup_path = backup_dir.join(format!(
+        "shares-pre-{}-{}.db",
+        STABILITY_MIGRATION_BACKUP_REVISION, stamp
+    ));
     std::fs::copy(db_path, &backup_path).map_err(|error| error.to_string())?;
     if let Err(error) = verify_sqlite_backup(&backup_path) {
         let _ = std::fs::remove_file(&backup_path);
-        return Err(format!("pre-migration backup verification failed: {}", error));
+        return Err(format!(
+            "pre-migration backup verification failed: {}",
+            error
+        ));
     }
-    std::fs::write(&marker, format!("{}\n", backup_path.display())).map_err(|error| error.to_string())?;
+    std::fs::write(&marker, format!("{}\n", backup_path.display()))
+        .map_err(|error| error.to_string())?;
     prune_stability_backups(&backup_dir);
     Ok(Some(backup_path))
 }
@@ -99,15 +147,24 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let db_path = dir.join("shares.db");
     let database_preexisted = db_path.is_file();
-    let recovery_dir = dirs::data_local_dir().unwrap_or_else(|| dir.clone()).join("TCloudRecovery");
+    let recovery_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| dir.clone())
+        .join("TCloudRecovery");
     let stability_install_id = match ensure_stability_install_id(&dir, &recovery_dir) {
         Ok(id) => id,
         Err(error) => {
-            log::warn!("Could not prepare the persistent TCloud install id: {}", error);
-            format!("temporary-{}-{:016x}", std::process::id(), rand::random::<u64>())
+            log::warn!(
+                "Could not prepare the persistent TCloud install id: {}",
+                error
+            );
+            format!(
+                "temporary-{}-{:016x}",
+                std::process::id(),
+                rand::random::<u64>()
+            )
         }
     };
-    
+
     // Retry opening the database with exponential backoff.
     // SQLite may report "database is locked" if another process or a stale
     // wal/shm journal hasn't been cleaned up yet (e.g., after a crash).
@@ -148,11 +205,14 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY;",
     );
     match create_pre_migration_backup(&conn, &db_path, &recovery_dir, database_preexisted) {
-        Ok(Some(path)) => log::info!("TCloud pre-migration database backup created: {}", path.display()),
+        Ok(Some(path)) => log::info!(
+            "TCloud pre-migration database backup created: {}",
+            path.display()
+        ),
         Ok(None) => {}
         Err(error) => log::warn!("TCloud pre-migration backup was not created: {}", error),
     }
-    
+
     // Run migration (also with retry for locked-database scenarios)
     {
         let mut last_err = String::new();
@@ -187,7 +247,7 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
                     display_order INTEGER NOT NULL DEFAULT 0,
                     group_id INTEGER,
                     FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE SET NULL
-                );"
+                );",
             ) {
                 Ok(_) => {
                     last_err.clear();
@@ -216,7 +276,8 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
 
     // TCloud 10 share analytics / download limit migration for existing databases.
     let _ = conn.execute("ALTER TABLE shared_links ADD COLUMN max_downloads INTEGER");
-    let _ = conn.execute("ALTER TABLE shared_links ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0");
+    let _ = conn
+        .execute("ALTER TABLE shared_links ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0");
     let _ = conn.execute("ALTER TABLE shared_links ADD COLUMN last_access_at INTEGER");
 
     // TCloud storage index migration. This metadata layer is independent of
@@ -282,7 +343,15 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
                 last_accessed_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_tcloud_cache_last_accessed
-                ON tcloud_cache(last_accessed_at);",
+                ON tcloud_cache(last_accessed_at);
+            CREATE TABLE IF NOT EXISTS tcloud_core_file_map (
+                local_file_id INTEGER PRIMARY KEY REFERENCES tcloud_files(id) ON DELETE CASCADE,
+                core_file_id TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_tcloud_core_file_map_core
+                ON tcloud_core_file_map(core_file_id);",
         ).map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT OR IGNORE INTO tcloud_folders(id,name,path,created_at,updated_at) VALUES(1,'TCloud','/',strftime('%s','now'),strftime('%s','now'))",
@@ -377,51 +446,62 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
             CREATE TABLE IF NOT EXISTS tcloud_index_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT
-            );"
-        ).map_err(|e| e.to_string())?;
+            );",
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     // TCloud backup runtime timestamps.
     {
-        let _ = conn.execute(
-            "ALTER TABLE tcloud_backup_sources ADD COLUMN last_scan_at INTEGER"
-        );
+        let _ = conn.execute("ALTER TABLE tcloud_backup_sources ADD COLUMN last_scan_at INTEGER");
 
-        let _ = conn.execute(
-            "ALTER TABLE tcloud_backup_sources ADD COLUMN last_success_at INTEGER"
-        );
+        let _ =
+            conn.execute("ALTER TABLE tcloud_backup_sources ADD COLUMN last_success_at INTEGER");
 
         let _ = conn.execute(
             "UPDATE tcloud_backup_sources
              SET last_scan_at=last_run_at
              WHERE last_scan_at IS NULL
-               AND last_run_at IS NOT NULL"
+               AND last_run_at IS NOT NULL",
         );
     }
     // TCloud transfer progress columns (best-effort compatibility migration).
     {
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN bytes_total INTEGER NOT NULL DEFAULT 0");
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN bytes_transferred INTEGER NOT NULL DEFAULT 0");
+        let _ = conn.execute(
+            "ALTER TABLE tcloud_sync_jobs ADD COLUMN bytes_total INTEGER NOT NULL DEFAULT 0",
+        );
+        let _ = conn.execute(
+            "ALTER TABLE tcloud_sync_jobs ADD COLUMN bytes_transferred INTEGER NOT NULL DEFAULT 0",
+        );
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN started_at INTEGER");
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN speed_bps INTEGER NOT NULL DEFAULT 0");
+        let _ = conn.execute(
+            "ALTER TABLE tcloud_sync_jobs ADD COLUMN speed_bps INTEGER NOT NULL DEFAULT 0",
+        );
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN eta_seconds INTEGER");
     }
 
     // TCloud transfer controls / scheduling (compatibility migration).
     {
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0");
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0");
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
+        let _ = conn
+            .execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0");
+        let _ = conn.execute(
+            "ALTER TABLE tcloud_sync_jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0",
+        );
+        let _ = conn
+            .execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN pause_scope TEXT");
         // TCloud 12.3 — durable Explorer -> Telegram retry/backoff metadata.
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
+        let _ = conn
+            .execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN next_attempt_at INTEGER");
         // TCloud 12.9.7 — crash-safe remote commit checkpoint. Once Telegram
         // confirms a message, persist its immutable id before any cleanup/final
         // UI bookkeeping. A process crash can then finish the same job on restart
         // instead of uploading a duplicate remote object.
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN remote_commit_message_id INTEGER");
-        let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN remote_commit_fingerprint TEXT");
+        let _ = conn
+            .execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN remote_commit_message_id INTEGER");
+        let _ =
+            conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN remote_commit_fingerprint TEXT");
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN remote_commit_sha256 TEXT");
         let _ = conn.execute("ALTER TABLE tcloud_sync_jobs ADD COLUMN remote_commit_at INTEGER");
         // Fast local change detection. This deliberately lives outside `sha256` so
@@ -437,8 +517,10 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
         let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN file_id INTEGER");
         let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN relative_path TEXT");
         let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN expires_at INTEGER");
-        let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN status TEXT NOT NULL DEFAULT 'trashed'");
-        let _ = conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN remote_message_id INTEGER");
+        let _ = conn
+            .execute("ALTER TABLE tcloud_trash ADD COLUMN status TEXT NOT NULL DEFAULT 'trashed'");
+        let _ =
+            conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN remote_message_id INTEGER");
         let _ = conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN file_name TEXT");
         let _ = conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN local_path TEXT");
         let _ = conn.execute("ALTER TABLE tcloud_sync_conflicts ADD COLUMN remote_name TEXT");
@@ -454,6 +536,39 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_tcloud_sync_jobs_remote_commit ON tcloud_sync_jobs(status,remote_commit_message_id,updated_at)");
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_tcloud_files_chat_status_created ON tcloud_files(telegram_chat_id,sync_status,created_at DESC)");
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_tcloud_files_remote_identity ON tcloud_files(telegram_chat_id,telegram_message_id)");
+        // Older clients created queued transfers before their byte totals were
+        // known. Backfill from the canonical file row so progress is meaningful
+        // immediately after an upgrade, without rebuilding or duplicating work.
+        let _ = conn.execute(
+            "UPDATE tcloud_sync_jobs
+             SET bytes_total=COALESCE((SELECT MAX(COALESCE(f.size,0),0)
+                                       FROM tcloud_files f
+                                       WHERE f.id=tcloud_sync_jobs.file_id),0)
+             WHERE status IN ('pending','paused') AND COALESCE(bytes_total,0)=0",
+        );
+        let _ = conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS trg_tcloud_sync_jobs_fill_bytes_total
+             AFTER INSERT ON tcloud_sync_jobs
+             FOR EACH ROW WHEN COALESCE(NEW.bytes_total,0)=0
+             BEGIN
+               UPDATE tcloud_sync_jobs
+                  SET bytes_total=COALESCE((SELECT MAX(COALESCE(f.size,0),0)
+                                            FROM tcloud_files f
+                                            WHERE f.id=NEW.file_id),0)
+                WHERE id=NEW.id;
+             END",
+        );
+        // `applying_remote_rename` is a short-lived CFAPI feedback-suppression
+        // marker, not durable sync work. Older builds did not clear it on every
+        // projection path, which left thousands of healthy remote files looking
+        // permanently busy after restart.
+        let _ = conn.execute(
+            "UPDATE tcloud_files
+                SET sync_status='synced', updated_at=strftime('%s','now')
+              WHERE sync_status='applying_remote_rename'
+                AND telegram_message_id IS NOT NULL
+                AND EXISTS(SELECT 1 FROM tcloud_cfapi_items c WHERE c.file_id=tcloud_files.id)",
+        );
     }
 
     // Encryption tables migration. Run the complete migration in one explicit
@@ -486,15 +601,12 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
             ));
         }
     }
-    
+
     log::info!("SQLite database initialized successfully using sqlite crate.");
     Ok(Arc::new(Mutex::new(conn)))
 }
 
-fn encryption_column_exists(
-    conn: &sqlite::Connection,
-    column_name: &str,
-) -> Result<bool, String> {
+fn encryption_column_exists(conn: &sqlite::Connection, column_name: &str) -> Result<bool, String> {
     let mut statement = conn
         .prepare("SELECT COUNT(*) FROM pragma_table_info('encrypted_files') WHERE name = ?")
         .map_err(|error| error.to_string())?;
@@ -574,9 +686,7 @@ fn run_encryption_migration(conn: &sqlite::Connection) -> Result<(), String> {
     })();
 
     match result {
-        Ok(()) => conn
-            .execute("COMMIT")
-            .map_err(|error| error.to_string()),
+        Ok(()) => conn.execute("COMMIT").map_err(|error| error.to_string()),
         Err(error) => {
             let _ = conn.execute("ROLLBACK");
             Err(error)
@@ -595,13 +705,19 @@ pub struct StartupRecoveryReport {
 /// common startup path fast while still validating WAL/database health after
 /// Windows updates, crashes or forced staging replacements.
 pub fn mark_runtime_started(db: &DbConnection) -> Result<StartupRecoveryReport, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let previous_clean = {
         let mut stmt = conn
-            .prepare("SELECT value FROM tcloud_settings WHERE key='stability_clean_shutdown' LIMIT 1")
+            .prepare(
+                "SELECT value FROM tcloud_settings WHERE key='stability_clean_shutdown' LIMIT 1",
+            )
             .map_err(|e| e.to_string())?;
         if matches!(stmt.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
-            stmt.read::<String, _>(0).unwrap_or_else(|_| "1".to_string()) == "1"
+            stmt.read::<String, _>(0)
+                .unwrap_or_else(|_| "1".to_string())
+                == "1"
         } else {
             true
         }
@@ -643,14 +759,19 @@ pub fn mark_runtime_started(db: &DbConnection) -> Result<StartupRecoveryReport, 
     ))
     .map_err(|e| e.to_string())?;
 
-    Ok(StartupRecoveryReport { previous_unclean_shutdown, quick_check_ok })
+    Ok(StartupRecoveryReport {
+        previous_unclean_shutdown,
+        quick_check_ok,
+    })
 }
 
 /// Record a clean application shutdown only after background services have been
 /// stopped. If Windows terminates the process first, the value remains `0` and
 /// the next startup automatically enters recovery mode.
 pub fn mark_runtime_clean_shutdown(db: &DbConnection) -> Result<(), String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let now = chrono::Utc::now().timestamp();
     conn.execute(format!(
         "INSERT INTO tcloud_settings(key,value) VALUES('stability_clean_shutdown','1') \n         ON CONFLICT(key) DO UPDATE SET value='1'; \n         INSERT INTO tcloud_settings(key,value) VALUES('stability_last_clean_shutdown_at','{now}') \n         ON CONFLICT(key) DO UPDATE SET value='{now}';"
@@ -662,7 +783,9 @@ pub fn mark_runtime_clean_shutdown(db: &DbConnection) -> Result<(), String> {
 /// runs while no transfer is active, keeps the WAL bounded and lets SQLite
 /// refresh planner statistics without interrupting Explorer operations.
 pub fn run_idle_maintenance(db: &DbConnection) -> Result<bool, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let running = {
         let mut stmt = conn
             .prepare("SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status='running'")
@@ -690,9 +813,8 @@ pub fn run_idle_maintenance(db: &DbConnection) -> Result<bool, String> {
 
     // Cache metadata can outlive a deleted database file row after a crash or an
     // old migration. Removing those orphan rows keeps cache scans bounded.
-    let _ = conn.execute(
-        "DELETE FROM tcloud_cache WHERE file_id NOT IN (SELECT id FROM tcloud_files)"
-    );
+    let _ =
+        conn.execute("DELETE FROM tcloud_cache WHERE file_id NOT IN (SELECT id FROM tcloud_files)");
 
     let cfapi_ops_exists = {
         let mut stmt = conn
