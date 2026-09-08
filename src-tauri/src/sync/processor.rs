@@ -3,27 +3,27 @@
 //! Consumes `tcloud_sync_jobs` and performs Telegram operations using the
 //! already authenticated grammers client managed by the application.
 
+use crate::commands::tcloud_network_settings::load_network_settings;
 use crate::commands::utils::{map_error, resolve_peer};
 use crate::db::DbConnection;
-use crate::vpn_optimizer::{backoff_ms, NetworkConfig};
-use crate::TelegramState;
 use crate::sync::cache::{cached_path_for, mark_cached};
 use crate::sync::controls::{job_control_state, mark_cancelled, JobControlState};
 use crate::sync::progress::{finish_transfer, start_transfer, update_transfer_progress};
 use crate::sync::scheduler::{signal_sync_work, wait_for_sync_work};
 use crate::sync::throttle::BandwidthThrottle;
-use crate::commands::tcloud_network_settings::load_network_settings;
+use crate::vpn_optimizer::{backoff_ms, NetworkConfig};
+use crate::TelegramState;
+use grammers_client::InputMessage;
+use sha2::{Digest, Sha256};
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncSeekExt, AsyncWriteExt, ReadBuf};
-use grammers_client::InputMessage;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use sha2::{Digest, Sha256};
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::io::{AsyncRead, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 
 // TCloud 12.8 — process-wide transient network gate. When Windows changes
 // Wi-Fi, wakes from sleep or loses internet, one failed transfer temporarily
@@ -86,7 +86,9 @@ fn is_transient_network_error(error: &str) -> bool {
 
 fn defer_job_for_network(db: &DbConnection, job_id: i64, error: &str) -> Result<u64, String> {
     crate::sync::progress::forget_transfer(job_id);
-    let streak = NETWORK_FAILURE_STREAK.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+    let streak = NETWORK_FAILURE_STREAK
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1);
     let delay = match streak {
         1 => 5,
         2 => 10,
@@ -97,7 +99,9 @@ fn defer_job_for_network(db: &DbConnection, job_id: i64, error: &str) -> Result<
     let now = chrono::Utc::now().timestamp();
     NETWORK_COOLDOWN_UNTIL.store(now + delay as i64, Ordering::Relaxed);
 
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs SET status='pending',error=?1,next_attempt_at=?2,\
@@ -105,8 +109,10 @@ fn defer_job_for_network(db: &DbConnection, job_id: i64, error: &str) -> Result<
         )
         .map_err(|e| e.to_string())?;
     let friendly = format!("Sem conexão. O TCloud tentará novamente automaticamente. ({error})");
-    stmt.bind((1, friendly.as_str())).map_err(|e| e.to_string())?;
-    stmt.bind((2, now + delay as i64)).map_err(|e| e.to_string())?;
+    stmt.bind((1, friendly.as_str()))
+        .map_err(|e| e.to_string())?;
+    stmt.bind((2, now + delay as i64))
+        .map_err(|e| e.to_string())?;
     stmt.bind((3, now)).map_err(|e| e.to_string())?;
     stmt.bind((4, job_id)).map_err(|e| e.to_string())?;
     stmt.next().map_err(|e| e.to_string())?;
@@ -160,9 +166,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for ThrottledCountingReader<R> {
 
         if this.limit_bps > 0 {
             let transferred = this.counter.load(Ordering::Relaxed);
-            let expected = std::time::Duration::from_secs_f64(
-                transferred as f64 / this.limit_bps as f64
-            );
+            let expected =
+                std::time::Duration::from_secs_f64(transferred as f64 / this.limit_bps as f64);
             let elapsed = this.started_at.elapsed();
             if elapsed < expected {
                 let remaining = expected - elapsed;
@@ -214,14 +219,45 @@ struct PendingJob {
     remote_commit_sha256: Option<String>,
 }
 
+/// Reconciles only work that has not started yet. Running transfers are never
+/// touched: cancelling an older upload after Telegram accepted bytes can create
+/// a second remote object. The newest waiting intent represents the current
+/// local file state, while downloads remain independent from uploads.
+fn reconcile_waiting_jobs(conn: &sqlite::Connection, now: i64) -> Result<u64, String> {
+    conn.execute(format!(
+        "UPDATE tcloud_sync_jobs
+         SET status='cancelled',cancel_requested=1,
+             error='Substituído automaticamente por uma operação mais recente.',
+             speed_bps=0,eta_seconds=NULL,updated_at={now}
+         WHERE status IN ('pending','paused')
+           AND COALESCE(cancel_requested,0)=0
+           AND EXISTS (
+             SELECT 1 FROM tcloud_sync_jobs winner
+             WHERE winner.file_id=tcloud_sync_jobs.file_id
+               AND COALESCE(winner.cancel_requested,0)=0
+               AND winner.status IN ('pending','running','paused')
+               AND (
+                 (winner.operation IN ('upload','refresh') AND tcloud_sync_jobs.operation IN ('upload','refresh'))
+                 OR winner.operation=tcloud_sync_jobs.operation
+               )
+               AND (
+                 winner.status='running'
+                 OR (winner.status!='running' AND winner.id>tcloud_sync_jobs.id)
+               )
+           )"
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(conn.change_count() as u64)
+}
+
 pub fn start_processor(app: AppHandle, db: DbConnection) {
     // 12.6.2 Part 7: jobs left as `running` belong to the previous process. A
     // Windows shutdown, update or crash must never leave the queue permanently
     // blocked after the next login. Recover them before any worker can claim work.
     {
-        if let Ok(conn)=db.lock() {
-            let now=chrono::Utc::now().timestamp();
-            let _=conn.execute(&format!(
+        if let Ok(conn) = db.lock() {
+            let now = chrono::Utc::now().timestamp();
+            let _ = conn.execute(&format!(
                 "UPDATE tcloud_sync_jobs SET \
                  status=CASE WHEN COALESCE(cancel_requested,0)<>0 THEN 'cancelled' \
                              WHEN COALESCE(paused,0)<>0 THEN 'paused' ELSE 'pending' END, \
@@ -237,8 +273,8 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
     // are cancelled. Local rows already moved to Trash must never be resurrected
     // by a leftover upload after an unclean shutdown.
     {
-        if let Ok(conn)=db.lock() {
-            let now=chrono::Utc::now().timestamp();
+        if let Ok(conn) = db.lock() {
+            let now = chrono::Utc::now().timestamp();
             let _=conn.execute(format!(
                 "UPDATE tcloud_sync_jobs SET status='cancelled',cancel_requested=1,error='Cancelado na recuperação: o arquivo já estava removido ou na Lixeira.',updated_at={now}                  WHERE operation IN ('upload','refresh') AND status IN ('pending','paused') AND remote_commit_message_id IS NULL                    AND file_id IN (SELECT id FROM tcloud_files WHERE sync_status IN ('deleted','trashed'));"
             ));
@@ -248,8 +284,16 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
             let _=conn.execute(
                 "UPDATE tcloud_sync_jobs SET priority=MAX(COALESCE(priority,0),190),next_attempt_at=NULL                  WHERE status='pending' AND remote_commit_message_id IS NOT NULL"
             );
+            if let Ok(cleaned) = reconcile_waiting_jobs(&conn, now) {
+                if cleaned > 0 {
+                    log::info!(
+                        "TCloud reconciliou {} tarefa(s) repetida(s) antes de iniciar.",
+                        cleaned
+                    );
+                }
+            }
             // Elimina uploads/refresh antigos substituídos por uma solicitação mais nova.
-            let _=conn.execute(format!(
+            let _ = conn.execute(format!(
                 "UPDATE tcloud_sync_jobs
                  SET status='cancelled',
                      cancel_requested=1,
@@ -269,7 +313,6 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
                    );"
             ));
 
-            
             // TCloud sync history retention.
             // Mantém histórico recente para diagnóstico, mas impede que
             // dezenas de milhares de jobs antigos cresçam indefinidamente.
@@ -289,9 +332,9 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
                            LIMIT 5000
                        )
                    );"
-            ));// Não gastar workers com pendências antigas de arquivos já confirmados
-            // como sincronizados. Jobs com checkpoint remoto ficam preservados.
-            let _=conn.execute(format!(
+            )); // Não gastar workers com pendências antigas de arquivos já confirmados
+                // como sincronizados. Jobs com checkpoint remoto ficam preservados.
+            let _ = conn.execute(format!(
                 "UPDATE tcloud_sync_jobs
                  SET status='cancelled',
                      cancel_requested=1,
@@ -313,7 +356,7 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
     // max_concurrent_transfers limit; these workers simply make that limit real
     // instead of serializing every Telegram transfer through one async loop.
     {
-        if let Ok(conn)=db.lock() {
+        if let Ok(conn) = db.lock() {
             let _=conn.execute("UPDATE tcloud_sync_jobs SET priority=130 WHERE operation='upload' AND status='pending' AND COALESCE(priority,0)<130");
             let _=conn.execute("UPDATE tcloud_sync_jobs SET priority=115 WHERE operation='refresh' AND status='pending' AND COALESCE(priority,0)<115");
             let _=conn.execute("UPDATE tcloud_sync_jobs SET priority=125 WHERE operation IN ('delete','delete_remote') AND status='pending' AND COALESCE(priority,0)<125");
@@ -321,62 +364,135 @@ pub fn start_processor(app: AppHandle, db: DbConnection) {
         }
     }
     for worker_id in 0..8u8 {
-        let worker_app=app.clone();
-        let worker_db=db.clone();
+        let worker_app = app.clone();
+        let worker_db = db.clone();
         tauri::async_runtime::spawn(async move {
-            // Keep worker 0 responsive while letting the other seven workers sleep
-            // progressively longer when the queue is empty. This removes dozens of
-            // SQLite polls per second during multi-hour tray sessions without making
-            // a newly-created Explorer file feel delayed.
-            let mut idle_rounds: u32 = 0;
             loop {
-                match process_next(&worker_app,&worker_db).await {
-                    Ok(true) => {
-                        idle_rounds = 0;
-                        // Yield instead of sleeping long enough to make a burst of
-                        // Explorer jobs feel serial. claim_next_job enforces the
-                        // configured transfer limit atomically under the DB mutex.
-                        tokio::task::yield_now().await;
+                // A worker may panic inside the Telegram session implementation.
+                // Keep that panic isolated in a child task so the long-lived
+                // supervisor can recreate the consumer instead of silently leaving
+                // hundreds of jobs pending until the whole app is restarted.
+                let run_app = worker_app.clone();
+                let run_db = worker_db.clone();
+                let worker = tauri::async_runtime::spawn(async move {
+                    // Keep worker 0 responsive while letting the other seven workers
+                    // sleep longer when the queue is empty.
+                    let mut idle_rounds: u32 = 0;
+                    loop {
+                        match process_next(&run_app, &run_db).await {
+                            Ok(true) => {
+                                idle_rounds = 0;
+                                tokio::task::yield_now().await;
+                            }
+                            Ok(false) => {
+                                idle_rounds = idle_rounds.saturating_add(1).min(12);
+                                let timeout = if worker_id == 0 {
+                                    Duration::from_millis(
+                                        350_u64.saturating_add((idle_rounds as u64) * 75).min(900),
+                                    )
+                                } else {
+                                    Duration::from_millis(900)
+                                };
+                                wait_for_sync_work(timeout).await;
+                            }
+                            Err(error) => {
+                                idle_rounds = idle_rounds.saturating_add(1).min(12);
+                                log::warn!("TCloud sync processor worker {}: {}", worker_id, error);
+                                wait_for_sync_work(Duration::from_millis(500)).await;
+                            }
+                        }
                     }
-                    Ok(false) => {
-                        idle_rounds = idle_rounds.saturating_add(1).min(12);
-                        // Event-driven idle wait: worker 0 remains the safety-net
-                        // for retry timestamps/legacy producers; the remaining
-                        // workers can sleep much longer with effectively zero idle
-                        // SQLite churn, yet signal_sync_work wakes them immediately.
-                        let timeout = if worker_id == 0 {
-                            Duration::from_millis(900_u64.saturating_add((idle_rounds as u64) * 100).min(1800))
-                        } else {
-                            Duration::from_secs(6)
-                        };
-                        wait_for_sync_work(timeout).await;
-                    }
-                    Err(error) => {
-                        idle_rounds = idle_rounds.saturating_add(1).min(12);
-                        log::warn!("TCloud sync processor worker {}: {}",worker_id,error);
-                        wait_for_sync_work(Duration::from_millis(1200)).await;
+                });
+
+                match worker.await {
+                    Ok(()) => log::warn!("TCloud sync worker {} exited; restarting.", worker_id),
+                    Err(error) => log::error!(
+                        "TCloud sync worker {} stopped unexpectedly ({}); restarting.",
+                        worker_id,
+                        error
+                    ),
+                }
+                tokio::time::sleep(Duration::from_millis(350)).await;
+                signal_sync_work();
+            }
+        });
+    }
+
+    // Recover jobs abandoned by a panicked worker without touching healthy active
+    // transfers. This watchdog also wakes consumers after long Windows sessions,
+    // network transitions and tray-only operation.
+    {
+        let watchdog_db = db.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(20)).await;
+                let now = chrono::Utc::now().timestamp();
+                if let Ok(conn) = watchdog_db.lock() {
+                    // A cancel or pause can arrive while a transport future is
+                    // blocked. Such rows must stop consuming concurrency slots
+                    // immediately, even before the stale-transfer timeout.
+                    let _ = conn.execute(format!(
+                        "UPDATE tcloud_sync_jobs
+                         SET status=CASE WHEN COALESCE(cancel_requested,0)<>0 THEN 'cancelled' ELSE 'paused' END,
+                             started_at=NULL,speed_bps=0,eta_seconds=NULL,updated_at={now}
+                         WHERE status='running'
+                           AND (COALESCE(cancel_requested,0)<>0 OR COALESCE(paused,0)<>0)"
+                    ));
+                    let stale_before = now - 120;
+                    let _ = conn.execute(format!(
+                        "UPDATE tcloud_sync_jobs
+                         SET status='pending',started_at=NULL,speed_bps=0,eta_seconds=NULL,
+                             next_attempt_at=NULL,updated_at={now},
+                             error='Transferência retomada automaticamente após interrupção do worker.'
+                         WHERE status='running'
+                           AND COALESCE(updated_at,0)<{stale_before}
+                           AND COALESCE(paused,0)=0
+                           AND COALESCE(cancel_requested,0)=0"
+                    ));
+                    // Producers already deduplicate under the database mutex, but
+                    // this periodic pass also repairs rows imported from older
+                    // versions and rare crash/retry interleavings during long runs.
+                    if let Ok(cleaned) = reconcile_waiting_jobs(&conn, now) {
+                        if cleaned > 0 {
+                            log::info!(
+                                "TCloud reconciliou {} tarefa(s) repetida(s) durante a sessão.",
+                                cleaned
+                            );
+                        }
                     }
                 }
+                signal_sync_work();
             }
         });
     }
 }
 
-fn requeue_after_finalize_failure(db:&DbConnection,job_id:i64,error:&str)->Result<(),String>{
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-    let now=chrono::Utc::now().timestamp();
-    let friendly=format!("Telegram confirmou a operação; finalização local será retomada automaticamente. ({error})");
+fn requeue_after_finalize_failure(
+    db: &DbConnection,
+    job_id: i64,
+    error: &str,
+) -> Result<(), String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let now = chrono::Utc::now().timestamp();
+    let friendly = format!(
+        "Telegram confirmou a operação; finalização local será retomada automaticamente. ({error})"
+    );
     let mut stmt=conn.prepare(
         "UPDATE tcloud_sync_jobs SET status='pending',error=?1,next_attempt_at=?2,speed_bps=0,eta_seconds=NULL,updated_at=?3 WHERE id=?4"
     ).map_err(|e|e.to_string())?;
-    stmt.bind((1,friendly.as_str())).map_err(|e|e.to_string())?;
-    stmt.bind((2,now+2)).map_err(|e|e.to_string())?;
-    stmt.bind((3,now)).map_err(|e|e.to_string())?;
-    stmt.bind((4,job_id)).map_err(|e|e.to_string())?;
-    stmt.next().map_err(|e|e.to_string())?;
-    drop(stmt);drop(conn);signal_sync_work();Ok(())
+    stmt.bind((1, friendly.as_str()))
+        .map_err(|e| e.to_string())?;
+    stmt.bind((2, now + 2)).map_err(|e| e.to_string())?;
+    stmt.bind((3, now)).map_err(|e| e.to_string())?;
+    stmt.bind((4, job_id)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
+    drop(stmt);
+    drop(conn);
+    signal_sync_work();
+    Ok(())
 }
-
 
 fn handle_missing_local_upload(
     db: &DbConnection,
@@ -402,27 +518,21 @@ fn handle_missing_local_upload(
             "SELECT telegram_message_id, telegram_file_id, sync_status
              FROM tcloud_files
              WHERE id=?1
-             LIMIT 1"
+             LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
 
     query.bind((1, job.file_id)).map_err(|e| e.to_string())?;
 
-    if !matches!(
-        query.next().map_err(|e| e.to_string())?,
-        sqlite::State::Row
-    ) {
+    if !matches!(query.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
         return Ok(false);
     }
 
-    let telegram_message_id =
-        query.read::<Option<i64>, _>(0).unwrap_or(None);
+    let telegram_message_id = query.read::<Option<i64>, _>(0).unwrap_or(None);
 
-    let telegram_file_id =
-        query.read::<Option<String>, _>(1).unwrap_or(None);
+    let telegram_file_id = query.read::<Option<String>, _>(1).unwrap_or(None);
 
-    let current_status =
-        query.read::<String, _>(2).unwrap_or_default();
+    let current_status = query.read::<String, _>(2).unwrap_or_default();
 
     drop(query);
 
@@ -449,7 +559,7 @@ fn handle_missing_local_upload(
                      speed_bps=0,
                      eta_seconds=NULL,
                      updated_at=?1
-                 WHERE id=?2"
+                 WHERE id=?2",
             )
             .map_err(|e| e.to_string())?;
 
@@ -473,7 +583,7 @@ fn handle_missing_local_upload(
                  speed_bps=0,
                  eta_seconds=NULL,
                  updated_at=?1
-             WHERE id=?2"
+             WHERE id=?2",
         )
         .map_err(|e| e.to_string())?;
 
@@ -491,7 +601,7 @@ fn handle_missing_local_upload(
                  updated_at=?1
              WHERE id=?2
                AND telegram_message_id IS NULL
-               AND telegram_file_id IS NULL"
+               AND telegram_file_id IS NULL",
         )
         .map_err(|e| e.to_string())?;
 
@@ -507,12 +617,35 @@ async fn process_next(app: &AppHandle, db: &DbConnection) -> Result<bool, String
     }
 
     let telegram = app.state::<TelegramState>();
-    let client = {
-        telegram.client.lock().await.clone()
-    };
-    let Some(client) = client else {
-        // Do not claim jobs while logged out/offline. They remain pending.
-        return Ok(false);
+    let existing_client =
+        match tokio::time::timeout(Duration::from_secs(2), telegram.client.lock()).await {
+            Ok(client) => client.clone(),
+            Err(_) => return Err("Telegram client lock timed out during reconnect".into()),
+        };
+    let client = match existing_client {
+        Some(client) => client,
+        None => {
+            // The React window may be hidden, suspended, or closed when Windows
+            // starts the app. A durable queue cannot depend on the WebView calling
+            // cmd_connect_simple, so workers restore the saved Telegram session.
+            let (api_id, _) = crate::commands::auth::tcloud_app_credentials()?;
+            *telegram.api_id.lock().await = Some(api_id);
+            match crate::commands::auth::ensure_client_initialized(app, &telegram, api_id).await {
+                Ok(client) => {
+                    log::info!(
+                        "TCloud sync processor restored the Telegram client for pending work."
+                    );
+                    client
+                }
+                Err(error) => {
+                    log::warn!(
+                        "TCloud sync processor could not restore Telegram yet: {}",
+                        error
+                    );
+                    return Ok(false);
+                }
+            }
+        }
     };
 
     let Some(job) = claim_next_job(db)? else {
@@ -520,23 +653,20 @@ async fn process_next(app: &AppHandle, db: &DbConnection) -> Result<bool, String
     };
 
     let result = match job.operation.as_str() {
-        "upload" | "refresh" => {
-            upload_job(app, &telegram, client, &job).await
-        }
-        "download" => {
-            download_job(&telegram, client, db, &job).await
-        }
-        "delete" | "delete_remote" => {
-            delete_job(&telegram, client, db, &job).await
-        }
+        "upload" | "refresh" => upload_job(app, &telegram, client, &job).await,
+        "download" => download_job(&telegram, client, db, &job).await,
+        "delete" | "delete_remote" => delete_job(&telegram, client, db, &job).await,
         unsupported => Err(format!("unsupported TCloud sync operation: {unsupported}")),
     };
 
     match result {
         Ok(remote_message_id) => {
-            if let Err(error)=finish_job(app, db, &job, remote_message_id){
-                requeue_after_finalize_failure(db,job.job_id,&error)?;
-                return Err(format!("job {} remote commit saved; local finalize deferred: {}",job.job_id,error));
+            if let Err(error) = finish_job(app, db, &job, remote_message_id) {
+                requeue_after_finalize_failure(db, job.job_id, &error)?;
+                return Err(format!(
+                    "job {} remote commit saved; local finalize deferred: {}",
+                    job.job_id, error
+                ));
             }
             NETWORK_FAILURE_STREAK.store(0, Ordering::Relaxed);
             NETWORK_COOLDOWN_UNTIL.store(0, Ordering::Relaxed);
@@ -581,24 +711,63 @@ async fn process_next(app: &AppHandle, db: &DbConnection) -> Result<bool, String
 }
 
 fn claim_next_job(db: &DbConnection) -> Result<Option<PendingJob>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     // 12.9.6: one locked decision replaces the old scheduler preflight + claim
     // pair, cutting idle/busy SQLite round-trips while preserving global pause.
     if crate::commands::tcloud_transfer_controls::refresh_global_pause_locked(&conn)?.paused {
         return Ok(None);
     }
+    // Old builds queued every generated file below a watched development
+    // directory because they inspected only the final filename. Cancel those
+    // pending jobs once, without touching completed uploads or personal files.
+    conn.execute(
+        "UPDATE tcloud_sync_jobs SET status='cancelled',cancel_requested=1,error='Ignorado: cache técnico',updated_at=strftime('%s','now')
+         WHERE status IN ('pending','failed') AND file_id IN (
+           SELECT id FROM tcloud_files WHERE
+             replace(lower(path),'\\','/') LIKE '%/node_modules/%' OR
+             replace(lower(path),'\\','/') LIKE '%/src-tauri/target/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.next/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.dart_tool/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.gradle/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.git/%' OR
+             replace(lower(path),'\\','/') LIKE '%/__pycache__/%' OR
+             replace(lower(path),'\\','/') LIKE '%/.turbo/%'
+         )",
+    ).map_err(|e| e.to_string())?;
     // Enforce the concurrency limit while holding the same DB mutex used to
     // claim a job. This closes the small race between parallel workers checking
     // the scheduler at the same time.
-    let max_concurrent={
-        let mut q=conn.prepare("SELECT value FROM tcloud_settings WHERE key='max_concurrent_transfers' LIMIT 1").map_err(|e|e.to_string())?;
-        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){q.read::<String,_>(0).ok().and_then(|v|v.parse::<i64>().ok()).unwrap_or(8).clamp(1,8)}else{8}
+    let max_concurrent = {
+        let mut q = conn
+            .prepare(
+                "SELECT value FROM tcloud_settings WHERE key='max_concurrent_transfers' LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
+        if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            q.read::<String, _>(0)
+                .ok()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(8)
+                .clamp(1, 8)
+        } else {
+            8
+        }
     };
-    let running={
-        let mut q=conn.prepare("SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status='running'").map_err(|e|e.to_string())?;
-        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){q.read::<i64,_>(0).unwrap_or(0)}else{0}
+    let running = {
+        let mut q = conn
+            .prepare("SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status='running' AND COALESCE(paused,0)=0 AND COALESCE(cancel_requested,0)=0")
+            .map_err(|e| e.to_string())?;
+        if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            q.read::<i64, _>(0).unwrap_or(0)
+        } else {
+            0
+        }
     };
-    if running>=max_concurrent{return Ok(None);}
+    if running >= max_concurrent {
+        return Ok(None);
+    }
     let now = chrono::Utc::now().timestamp();
     let mut stmt = conn.prepare(
         "SELECT j.id,j.file_id,j.operation,f.path,f.telegram_chat_id,f.telegram_message_id,c.relative_path,
@@ -618,122 +787,211 @@ fn claim_next_job(db: &DbConnection) -> Result<Option<PendingJob>, String> {
              )
          ORDER BY j.priority DESC,j.created_at ASC,j.id ASC LIMIT 1"
     ).map_err(|e|e.to_string())?;
-    stmt.bind((1,now)).map_err(|e|e.to_string())?;
-    if !matches!(stmt.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Ok(None);}
-    let stored_path=stmt.read::<String,_>(3).map_err(|e|e.to_string())?;
-    let relative=stmt.read::<Option<String>,_>(6).unwrap_or(None);
-    let actual_path=if let Some(relative)=relative{
-        crate::commands::tcloud_cfapi::cfapi_root().map(|root|root.join(relative).to_string_lossy().to_string()).unwrap_or(stored_path)
-    }else{stored_path};
-    let job=PendingJob{
-        job_id:stmt.read::<i64,_>(0).map_err(|e|e.to_string())?,
-        file_id:stmt.read::<i64,_>(1).map_err(|e|e.to_string())?,
-        operation:stmt.read::<String,_>(2).map_err(|e|e.to_string())?,
-        path:actual_path,
-        telegram_chat_id:stmt.read::<Option<i64>,_>(4).unwrap_or(None),
-        telegram_message_id:stmt.read::<Option<i64>,_>(5).unwrap_or(None).and_then(|v|i32::try_from(v).ok()),
-        remote_commit_message_id:stmt.read::<Option<i64>,_>(7).unwrap_or(None).and_then(|v|i32::try_from(v).ok()),
-        remote_commit_fingerprint:stmt.read::<Option<String>,_>(8).unwrap_or(None),
-        remote_commit_sha256:stmt.read::<Option<String>,_>(9).unwrap_or(None),
+    stmt.bind((1, now)).map_err(|e| e.to_string())?;
+    if !matches!(stmt.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+        return Ok(None);
+    }
+    let stored_path = stmt.read::<String, _>(3).map_err(|e| e.to_string())?;
+    let relative = stmt.read::<Option<String>, _>(6).unwrap_or(None);
+    let actual_path = if let Some(relative) = relative {
+        crate::commands::tcloud_cfapi::cfapi_root()
+            .map(|root| root.join(relative).to_string_lossy().to_string())
+            .unwrap_or(stored_path)
+    } else {
+        stored_path
+    };
+    let job = PendingJob {
+        job_id: stmt.read::<i64, _>(0).map_err(|e| e.to_string())?,
+        file_id: stmt.read::<i64, _>(1).map_err(|e| e.to_string())?,
+        operation: stmt.read::<String, _>(2).map_err(|e| e.to_string())?,
+        path: actual_path,
+        telegram_chat_id: stmt.read::<Option<i64>, _>(4).unwrap_or(None),
+        telegram_message_id: stmt
+            .read::<Option<i64>, _>(5)
+            .unwrap_or(None)
+            .and_then(|v| i32::try_from(v).ok()),
+        remote_commit_message_id: stmt
+            .read::<Option<i64>, _>(7)
+            .unwrap_or(None)
+            .and_then(|v| i32::try_from(v).ok()),
+        remote_commit_fingerprint: stmt.read::<Option<String>, _>(8).unwrap_or(None),
+        remote_commit_sha256: stmt.read::<Option<String>, _>(9).unwrap_or(None),
     };
     drop(stmt);
     let mut update=conn.prepare(
         "UPDATE tcloud_sync_jobs SET status='running',error=NULL,updated_at=?1
          WHERE id=?2 AND status='pending' AND COALESCE(paused,0)=0 AND COALESCE(cancel_requested,0)=0"
     ).map_err(|e|e.to_string())?;
-    update.bind((1,now)).map_err(|e|e.to_string())?;
-    update.bind((2,job.job_id)).map_err(|e|e.to_string())?;
-    update.next().map_err(|e|e.to_string())?;
+    update.bind((1, now)).map_err(|e| e.to_string())?;
+    update.bind((2, job.job_id)).map_err(|e| e.to_string())?;
+    update.next().map_err(|e| e.to_string())?;
     drop(update);
-    if conn.change_count()==0 {
+    if conn.change_count() == 0 {
         return Ok(None);
     }
     Ok(Some(job))
 }
 
 async fn resolve_sync_destination(
-    client:&grammers_client::Client,
-    telegram:&tauri::State<'_,TelegramState>,
-    db:&DbConnection,
-    chat_key:Option<i64>,
-)->Result<(grammers_client::types::Peer,Option<i32>),String>{
-    let key=chat_key.unwrap_or(0);
-    if key<0{
-        let topic=crate::commands::tcloud_forums::topic_target(db,Some(key))?
-            .ok_or_else(||format!("Tópico TCloud {key} não encontrado."))?;
-        let peer_ref:grammers_session::types::PeerRef=grammers_tl_types::types::InputPeerChannel{
-            channel_id:topic.chat_id,access_hash:topic.access_hash,
-        }.into();
-        let peer=client.resolve_peer(peer_ref).await.map_err(|e|format!("Não foi possível abrir o fórum '{}' para sincronização: {e}",topic.name))?;
-        {
-            let mut cache=telegram.peer_cache.write().await;
-            cache.insert(topic.chat_id,peer.clone());
-            cache.insert(key,peer.clone());
-        }
-        Ok((peer,Some(topic.topic_id)))
-    }else{
-        let peer=resolve_peer(client,if key==0{None}else{Some(key)},&telegram.peer_cache).await?;
-        Ok((peer,None))
+    client: &grammers_client::Client,
+    telegram: &tauri::State<'_, TelegramState>,
+    db: &DbConnection,
+    chat_key: Option<i64>,
+) -> Result<(grammers_client::types::Peer, Option<i32>), String> {
+    let key = chat_key.unwrap_or(0);
+    if key < 0 {
+        let topic = crate::commands::tcloud_forums::topic_target(db, Some(key))?
+            .ok_or_else(|| format!("Tópico TCloud {key} não encontrado."))?;
+        let cached = {
+            let cache = telegram.peer_cache.read().await;
+            cache
+                .get(&key)
+                .or_else(|| cache.get(&topic.chat_id))
+                .cloned()
+        };
+        let peer = if let Some(peer) = cached {
+            peer
+        } else {
+            let peer_ref: grammers_session::types::PeerRef =
+                grammers_tl_types::types::InputPeerChannel {
+                    channel_id: topic.chat_id,
+                    access_hash: topic.access_hash,
+                }
+                .into();
+            let peer = client.resolve_peer(peer_ref).await.map_err(|e| {
+                format!(
+                    "Não foi possível abrir o fórum '{}' para sincronização: {e}",
+                    topic.name
+                )
+            })?;
+            let mut cache = telegram.peer_cache.write().await;
+            cache.insert(topic.chat_id, peer.clone());
+            cache.insert(key, peer.clone());
+            peer
+        };
+        Ok((peer, Some(topic.topic_id)))
+    } else {
+        let peer = resolve_peer(
+            client,
+            if key == 0 { None } else { Some(key) },
+            &telegram.peer_cache,
+        )
+        .await?;
+        Ok((peer, None))
     }
 }
 
-fn encrypted_remote_file(db:&DbConnection,chat_key:Option<i64>,message_id:Option<i32>)->Result<bool,String>{
-    let Some(message_id)=message_id else{return Ok(false);};
-    let folder_key=chat_key.filter(|v|*v!=0).map(|v|v.to_string()).unwrap_or_else(||"home".to_string());
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
+fn encrypted_remote_file(
+    db: &DbConnection,
+    chat_key: Option<i64>,
+    message_id: Option<i32>,
+) -> Result<bool, String> {
+    let Some(message_id) = message_id else {
+        return Ok(false);
+    };
+    let folder_key = chat_key
+        .filter(|v| *v != 0)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "home".to_string());
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut q=conn.prepare("SELECT 1 FROM encrypted_files WHERE folder_key=?1 AND message_id=?2 AND record_state='active' LIMIT 1").map_err(|e|e.to_string())?;
-    q.bind((1,folder_key.as_str())).map_err(|e|e.to_string())?;
-    q.bind((2,i64::from(message_id))).map_err(|e|e.to_string())?;
-    Ok(matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row))
+    q.bind((1, folder_key.as_str()))
+        .map_err(|e| e.to_string())?;
+    q.bind((2, i64::from(message_id)))
+        .map_err(|e| e.to_string())?;
+    Ok(matches!(
+        q.next().map_err(|e| e.to_string())?,
+        sqlite::State::Row
+    ))
 }
 
-fn local_fingerprint(path:&std::path::Path)->Result<String,String>{
-    let meta=std::fs::metadata(path).map_err(|e|format!("failed to inspect {}: {e}",path.display()))?;
-    let modified_ns=meta.modified().ok()
-        .and_then(|value|value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value|value.as_nanos()).unwrap_or(0);
-    Ok(format!("{}:{}",meta.len(),modified_ns))
+fn local_fingerprint(path: &std::path::Path) -> Result<String, String> {
+    let meta = std::fs::metadata(path)
+        .map_err(|e| format!("failed to inspect {}: {e}", path.display()))?;
+    let modified_ns = meta
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    Ok(format!("{}:{}", meta.len(), modified_ns))
 }
 
-async fn wait_until_file_stable(db:&DbConnection,job_id:i64,path:&std::path::Path)->Result<String,String>{
-    let mut last:Option<String>=None;
-    let mut stable_since:Option<std::time::Instant>=None;
-    loop{
-        wait_for_job_control(db,job_id).await?;
-        if !path.exists() || !path.is_file(){return Err(format!("local file not found: {}",path.display()));}
-        let metadata=std::fs::metadata(path).map_err(|e|format!("failed to inspect {}: {e}",path.display()))?;
-        let size=metadata.len();
+async fn wait_until_file_stable(
+    db: &DbConnection,
+    job_id: i64,
+    path: &std::path::Path,
+) -> Result<String, String> {
+    let mut last: Option<String> = None;
+    let mut stable_since: Option<std::time::Instant> = None;
+    loop {
+        wait_for_job_control(db, job_id).await?;
+        if !path.exists() || !path.is_file() {
+            return Err(format!("local file not found: {}", path.display()));
+        }
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| format!("failed to inspect {}: {e}", path.display()))?;
+        let size = metadata.len();
         // Many desktop applications save in bursts: write, pause briefly, then
         // append/finalize. Sampling only twice could mistake that pause for EOF.
         // Require a size-dependent quiet *duration* and also make sure the mtime
         // itself is old enough before opening the file for Telegram.
-        let (quiet_ms,sample_ms)=if size<=8*1024*1024{(650u64,150u64)}else if size<=128*1024*1024{(950u64,250u64)}else{(1500u64,400u64)};
-        let current=local_fingerprint(path)?;
-        if last.as_deref()==Some(current.as_str()){
-            let since=stable_since.get_or_insert_with(std::time::Instant::now);
-            let modified_quiet=metadata.modified().ok()
-                .and_then(|modified|std::time::SystemTime::now().duration_since(modified).ok())
-                .map(|age|age>=Duration::from_millis(quiet_ms))
+        let (quiet_ms, sample_ms) = if size <= 8 * 1024 * 1024 {
+            (650u64, 150u64)
+        } else if size <= 128 * 1024 * 1024 {
+            (950u64, 250u64)
+        } else {
+            (1500u64, 400u64)
+        };
+        let current = local_fingerprint(path)?;
+        if last.as_deref() == Some(current.as_str()) {
+            let since = stable_since.get_or_insert_with(std::time::Instant::now);
+            let modified_quiet = metadata
+                .modified()
+                .ok()
+                .and_then(|modified| std::time::SystemTime::now().duration_since(modified).ok())
+                .map(|age| age >= Duration::from_millis(quiet_ms))
                 .unwrap_or(true);
-            if since.elapsed()>=Duration::from_millis(quiet_ms) && modified_quiet{return Ok(current);}
-        }else{
-            last=Some(current);
-            stable_since=Some(std::time::Instant::now());
+            if since.elapsed() >= Duration::from_millis(quiet_ms) && modified_quiet {
+                return Ok(current);
+            }
+        } else {
+            last = Some(current);
+            stable_since = Some(std::time::Instant::now());
         }
         tokio::time::sleep(Duration::from_millis(sample_ms)).await;
     }
 }
 
-fn queue_followup_upload(db:&DbConnection,job:&PendingJob,fingerprint:&str)->Result<(),String>{
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-    let now=chrono::Utc::now().timestamp();
+fn queue_followup_upload(
+    db: &DbConnection,
+    job: &PendingJob,
+    fingerprint: &str,
+) -> Result<(), String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let now = chrono::Utc::now().timestamp();
     let mut file=conn.prepare("UPDATE tcloud_files SET local_fingerprint=?1,sync_status='pending_upload',updated_at=?2 WHERE id=?3").map_err(|e|e.to_string())?;
-    file.bind((1,fingerprint)).map_err(|e|e.to_string())?;file.bind((2,now)).map_err(|e|e.to_string())?;file.bind((3,job.file_id)).map_err(|e|e.to_string())?;file.next().map_err(|e|e.to_string())?;
+    file.bind((1, fingerprint)).map_err(|e| e.to_string())?;
+    file.bind((2, now)).map_err(|e| e.to_string())?;
+    file.bind((3, job.file_id)).map_err(|e| e.to_string())?;
+    file.next().map_err(|e| e.to_string())?;
     let mut existing=conn.prepare("SELECT 1 FROM tcloud_sync_jobs WHERE file_id=?1 AND id!=?2 AND operation IN ('upload','refresh') AND status IN ('pending','running') LIMIT 1").map_err(|e|e.to_string())?;
-    existing.bind((1,job.file_id)).map_err(|e|e.to_string())?;existing.bind((2,job.job_id)).map_err(|e|e.to_string())?;
-    if matches!(existing.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Ok(());}
-    let mut enqueue=conn.prepare("INSERT INTO tcloud_sync_jobs(file_id,operation,status,created_at,updated_at,priority,attempts,next_attempt_at) VALUES(?1,'refresh','pending',?2,?2,115,0,NULL)").map_err(|e|e.to_string())?;
-    enqueue.bind((1,job.file_id)).map_err(|e|e.to_string())?;enqueue.bind((2,now)).map_err(|e|e.to_string())?;enqueue.next().map_err(|e|e.to_string())?;
+    existing.bind((1, job.file_id)).map_err(|e| e.to_string())?;
+    existing.bind((2, job.job_id)).map_err(|e| e.to_string())?;
+    if matches!(
+        existing.next().map_err(|e| e.to_string())?,
+        sqlite::State::Row
+    ) {
+        return Ok(());
+    }
+    let mut enqueue=conn.prepare("INSERT INTO tcloud_sync_jobs(file_id,operation,status,created_at,updated_at,priority,attempts,next_attempt_at,bytes_total) VALUES(?1,'refresh','pending',?2,?2,115,0,NULL,(SELECT MAX(COALESCE(size,0),0) FROM tcloud_files WHERE id=?1))").map_err(|e|e.to_string())?;
+    enqueue.bind((1, job.file_id)).map_err(|e| e.to_string())?;
+    enqueue.bind((2, now)).map_err(|e| e.to_string())?;
+    enqueue.next().map_err(|e| e.to_string())?;
     drop(enqueue);
     drop(existing);
     drop(file);
@@ -742,56 +1000,70 @@ fn queue_followup_upload(db:&DbConnection,job:&PendingJob,fingerprint:&str)->Res
     Ok(())
 }
 
-fn upload_sha256_hex(hasher:&Arc<Mutex<Sha256>>)->Result<String,String>{
-    let guard=hasher.lock().map_err(|_|"upload hash lock poisoned".to_string())?;
-    let digest=guard.clone().finalize();
-    Ok(digest.iter().map(|byte|format!("{byte:02x}")).collect::<String>())
+fn upload_sha256_hex(hasher: &Arc<Mutex<Sha256>>) -> Result<String, String> {
+    let guard = hasher
+        .lock()
+        .map_err(|_| "upload hash lock poisoned".to_string())?;
+    let digest = guard.clone().finalize();
+    Ok(digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>())
 }
 
 fn checkpoint_remote_commit(
-    db:&DbConnection,
-    job_id:i64,
-    message_id:i32,
-    fingerprint:&str,
-    sha256:&str,
-)->Result<(),String>{
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-    let now=chrono::Utc::now().timestamp();
+    db: &DbConnection,
+    job_id: i64,
+    message_id: i32,
+    fingerprint: &str,
+    sha256: &str,
+) -> Result<(), String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let now = chrono::Utc::now().timestamp();
     let mut stmt=conn.prepare(
         "UPDATE tcloud_sync_jobs SET remote_commit_message_id=?1,remote_commit_fingerprint=?2,remote_commit_sha256=?3,remote_commit_at=?4,updated_at=?4 WHERE id=?5"
     ).map_err(|e|e.to_string())?;
-    stmt.bind((1,i64::from(message_id))).map_err(|e|e.to_string())?;
-    stmt.bind((2,fingerprint)).map_err(|e|e.to_string())?;
-    stmt.bind((3,sha256)).map_err(|e|e.to_string())?;
-    stmt.bind((4,now)).map_err(|e|e.to_string())?;
-    stmt.bind((5,job_id)).map_err(|e|e.to_string())?;
-    stmt.next().map_err(|e|e.to_string())?;
+    stmt.bind((1, i64::from(message_id)))
+        .map_err(|e| e.to_string())?;
+    stmt.bind((2, fingerprint)).map_err(|e| e.to_string())?;
+    stmt.bind((3, sha256)).map_err(|e| e.to_string())?;
+    stmt.bind((4, now)).map_err(|e| e.to_string())?;
+    stmt.bind((5, job_id)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn clear_remote_commit(db:&DbConnection,job_id:i64)->Result<(),String>{
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
+fn clear_remote_commit(db: &DbConnection, job_id: i64) -> Result<(), String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt=conn.prepare(
         "UPDATE tcloud_sync_jobs SET remote_commit_message_id=NULL,remote_commit_fingerprint=NULL,remote_commit_sha256=NULL,remote_commit_at=NULL WHERE id=?1"
     ).map_err(|e|e.to_string())?;
-    stmt.bind((1,job_id)).map_err(|e|e.to_string())?;
-    stmt.next().map_err(|e|e.to_string())?;
+    stmt.bind((1, job_id)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 async fn preserve_previous_remote_version(
-    client:&grammers_client::Client,
-    peer:&grammers_client::types::Peer,
-    db:&DbConnection,
-    job:&PendingJob,
-    new_message_id:i32,
-    file_name:&str,
-    size:i64,
-){
-    let Some(old_message_id)=job.telegram_message_id else{return;};
-    if old_message_id==new_message_id{return;}
-    let retention=crate::commands::tcloud_sync_maturity::version_retention(db);
-    if retention>0{
+    client: &grammers_client::Client,
+    peer: &grammers_client::types::Peer,
+    db: &DbConnection,
+    job: &PendingJob,
+    new_message_id: i32,
+    file_name: &str,
+    size: i64,
+) {
+    let Some(old_message_id) = job.telegram_message_id else {
+        return;
+    };
+    if old_message_id == new_message_id {
+        return;
+    }
+    let retention = crate::commands::tcloud_sync_maturity::version_retention(db);
+    if retention > 0 {
         match crate::commands::tcloud_sync_maturity::record_version_and_collect_prunable(
             db,job.file_id,old_message_id,job.telegram_chat_id,file_name,size,&job.path,retention
         ){
@@ -810,50 +1082,95 @@ async fn preserve_previous_remote_version(
             }
             Err(error)=>log::warn!("TCloud: nova versão confirmada, mas o snapshot da anterior será reconciliado depois: {}",error),
         }
-    }else if let Err(error)=client.delete_messages(peer,&[old_message_id]).await{
-        log::warn!("TCloud: nova versão confirmada, mas a anterior {} será removida depois: {}",old_message_id,error);
-        let _=crate::commands::tcloud_cfapi::queue_remote_cleanup(
-            db,job.file_id,job.telegram_chat_id.unwrap_or(0),old_message_id,size
+    } else if let Err(error) = client.delete_messages(peer, &[old_message_id]).await {
+        log::warn!(
+            "TCloud: nova versão confirmada, mas a anterior {} será removida depois: {}",
+            old_message_id,
+            error
+        );
+        let _ = crate::commands::tcloud_cfapi::queue_remote_cleanup(
+            db,
+            job.file_id,
+            job.telegram_chat_id.unwrap_or(0),
+            old_message_id,
+            size,
         );
     }
 }
 
 async fn recover_remote_commit_if_present(
-    telegram:&tauri::State<'_,TelegramState>,
-    client:&grammers_client::Client,
-    db:&DbConnection,
-    job:&PendingJob,
-)->Result<Option<i32>,String>{
-    let Some(message_id)=job.remote_commit_message_id else{return Ok(None);};
-    let (peer,_topic)=resolve_sync_destination(client,telegram,db,job.telegram_chat_id).await?;
-    let messages=client.get_messages_by_id(&peer,&[message_id]).await
-        .map_err(|e|format!("Falha ao validar checkpoint remoto do upload: {}",map_error(e)))?;
-    if messages.into_iter().flatten().next().is_none(){
+    telegram: &tauri::State<'_, TelegramState>,
+    client: &grammers_client::Client,
+    db: &DbConnection,
+    job: &PendingJob,
+) -> Result<Option<i32>, String> {
+    let Some(message_id) = job.remote_commit_message_id else {
+        return Ok(None);
+    };
+    let (peer, _topic) =
+        resolve_sync_destination(client, telegram, db, job.telegram_chat_id).await?;
+    let messages = client
+        .get_messages_by_id(&peer, &[message_id])
+        .await
+        .map_err(|e| {
+            format!(
+                "Falha ao validar checkpoint remoto do upload: {}",
+                map_error(e)
+            )
+        })?;
+    if messages.into_iter().flatten().next().is_none() {
         // The checkpoint points at an object that no longer exists. Clear it and
         // allow the normal upload path to recreate the remote object exactly once.
-        clear_remote_commit(db,job.job_id)?;
-        log::warn!("TCloud: checkpoint remoto do job {} não existe mais; upload será refeito.",job.job_id);
+        clear_remote_commit(db, job.job_id)?;
+        log::warn!(
+            "TCloud: checkpoint remoto do job {} não existe mais; upload será refeito.",
+            job.job_id
+        );
         return Ok(None);
     }
 
-    let path=PathBuf::from(&job.path);
-    let size=std::fs::metadata(&path).map(|m|m.len() as i64).unwrap_or_else(|_|{
-        let Ok(conn)=db.lock() else{return 0;};
-        let Ok(mut q)=conn.prepare("SELECT size FROM tcloud_files WHERE id=?1 LIMIT 1") else{return 0;};
-        if q.bind((1,job.file_id)).is_ok() && matches!(q.next(),Ok(sqlite::State::Row)){q.read::<i64,_>(0).unwrap_or(0)}else{0}
-    });
-    let file_name=path.file_name().and_then(|v|v.to_str()).unwrap_or("arquivo").to_string();
-    preserve_previous_remote_version(client,&peer,db,job,message_id,&file_name,size).await;
+    let path = PathBuf::from(&job.path);
+    let size = std::fs::metadata(&path)
+        .map(|m| m.len() as i64)
+        .unwrap_or_else(|_| {
+            let Ok(conn) = db.lock() else {
+                return 0;
+            };
+            let Ok(mut q) = conn.prepare("SELECT size FROM tcloud_files WHERE id=?1 LIMIT 1")
+            else {
+                return 0;
+            };
+            if q.bind((1, job.file_id)).is_ok() && matches!(q.next(), Ok(sqlite::State::Row)) {
+                q.read::<i64, _>(0).unwrap_or(0)
+            } else {
+                0
+            }
+        });
+    let file_name = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("arquivo")
+        .to_string();
+    preserve_previous_remote_version(client, &peer, db, job, message_id, &file_name, size).await;
 
-    if path.is_file(){
-        if let Ok(current)=local_fingerprint(&path){
-            if job.remote_commit_fingerprint.as_deref()!=Some(current.as_str()){
-                queue_followup_upload(db,job,&current)?;
+    if path.is_file() {
+        if let Ok(current) = local_fingerprint(&path) {
+            if job.remote_commit_fingerprint.as_deref() != Some(current.as_str()) {
+                queue_followup_upload(db, job, &current)?;
             }
         }
     }
-    let hash_hint=job.remote_commit_sha256.as_deref().and_then(|v|v.get(..12)).unwrap_or("sem-hash");
-    log::info!("TCloud: job {} recuperado do checkpoint remoto (mensagem {}, hash {}).",job.job_id,message_id,hash_hint);
+    let hash_hint = job
+        .remote_commit_sha256
+        .as_deref()
+        .and_then(|v| v.get(..12))
+        .unwrap_or("sem-hash");
+    log::info!(
+        "TCloud: job {} recuperado do checkpoint remoto (mensagem {}, hash {}).",
+        job.job_id,
+        message_id,
+        hash_hint
+    );
     Ok(Some(message_id))
 }
 
@@ -863,11 +1180,13 @@ async fn upload_job(
     client: grammers_client::Client,
     job: &PendingJob,
 ) -> Result<Option<i32>, String> {
-    let db=app.state::<DbConnection>();
+    let db = app.state::<DbConnection>();
     // If Telegram already confirmed this upload before a crash/update, recover
     // from the durable checkpoint before touching local bytes again. This is the
     // key guard against duplicate remote files after an unclean shutdown.
-    if let Some(message_id)=recover_remote_commit_if_present(telegram,&client,db.inner(),job).await?{
+    if let Some(message_id) =
+        recover_remote_commit_if_present(telegram, &client, db.inner(), job).await?
+    {
         return Ok(Some(message_id));
     }
 
@@ -876,14 +1195,14 @@ async fn upload_job(
         return Err(format!("local file not found: {}", path.display()));
     }
 
-    if encrypted_remote_file(db.inner(),job.telegram_chat_id,job.telegram_message_id)?{
+    if encrypted_remote_file(db.inner(), job.telegram_chat_id, job.telegram_message_id)? {
         return Err("Este arquivo está protegido pelo Cofre. A edição direta pelo Explorer ainda não pode substituir o objeto criptografado sem reempacotar o TDENC2.".into());
     }
 
     // Explorer emits create/modify notifications while a copy is still being
     // written. Wait for a short stable window before opening the file so a large
     // copy can never become a partial Telegram object.
-    let uploaded_fingerprint=wait_until_file_stable(db.inner(),job.job_id,&path).await?;
+    let uploaded_fingerprint = wait_until_file_stable(db.inner(), job.job_id, &path).await?;
     let file_name = path
         .file_name()
         .and_then(|v| v.to_str())
@@ -959,10 +1278,13 @@ async fn upload_job(
     // object after the UI already said the operation was stopping.
     wait_for_job_control(db.inner(), job.job_id).await?;
     let uploaded = uploaded_result.map_err(map_error)?;
-    let uploaded_sha256=upload_sha256_hex(&upload_hasher)?;
-    let (peer,topic_id)=resolve_sync_destination(&client,telegram,db.inner(),job.telegram_chat_id).await?;
+    let uploaded_sha256 = upload_sha256_hex(&upload_hasher)?;
+    let (peer, topic_id) =
+        resolve_sync_destination(&client, telegram, db.inner(), job.telegram_chat_id).await?;
     let mut outgoing = InputMessage::new().text("").file(uploaded);
-    if let Some(topic_id)=topic_id{outgoing=outgoing.reply_to(Some(topic_id));}
+    if let Some(topic_id) = topic_id {
+        outgoing = outgoing.reply_to(Some(topic_id));
+    }
 
     let network = app.state::<Arc<NetworkConfig>>();
     let max_retries = network.retry_attempts();
@@ -977,27 +1299,39 @@ async fn upload_job(
                 // stops on the next instruction, startup can verify this message
                 // and finalize the same job instead of uploading duplicate bytes.
                 checkpoint_remote_commit(
-                    db.inner(),job.job_id,message.id(),&uploaded_fingerprint,&uploaded_sha256
+                    db.inner(),
+                    job.job_id,
+                    message.id(),
+                    &uploaded_fingerprint,
+                    &uploaded_sha256,
                 )?;
                 preserve_previous_remote_version(
-                    &client,&peer,db.inner(),job,message.id(),&file_name,size as i64
-                ).await;
+                    &client,
+                    &peer,
+                    db.inner(),
+                    job,
+                    message.id(),
+                    &file_name,
+                    size as i64,
+                )
+                .await;
                 // If the user edited the file again while this upload was in
                 // flight, preserve the newly created remote version but immediately
                 // queue one more refresh. The current job must not mark newer local
                 // bytes as synchronized by accident.
-                if let Ok(current_fingerprint)=local_fingerprint(&path){
-                    if current_fingerprint!=uploaded_fingerprint{
-                        queue_followup_upload(db.inner(),job,&current_fingerprint)?;
+                if let Ok(current_fingerprint) = local_fingerprint(&path) {
+                    if current_fingerprint != uploaded_fingerprint {
+                        queue_followup_upload(db.inner(), job, &current_fingerprint)?;
                     }
                 }
                 finish_transfer(db.inner(), job.job_id)?;
                 return Ok(Some(message.id()));
-            },
+            }
             Err(error) => {
                 last_error = map_error(error);
                 if network.should_respect_flood_wait() && last_error.starts_with("FLOOD_WAIT_") {
-                    if let Ok(seconds) = last_error.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                    if let Ok(seconds) = last_error.trim_start_matches("FLOOD_WAIT_").parse::<u64>()
+                    {
                         tokio::time::sleep(Duration::from_secs(seconds.min(300))).await;
                         continue;
                     }
@@ -1021,7 +1355,6 @@ async fn upload_job(
     })
 }
 
-
 async fn download_job(
     telegram: &tauri::State<'_, TelegramState>,
     client: grammers_client::Client,
@@ -1032,7 +1365,8 @@ async fn download_job(
         return Err("download job has no Telegram message id".into());
     };
 
-    let (peer,_topic_id)=resolve_sync_destination(&client,telegram,db,job.telegram_chat_id).await?;
+    let (peer, _topic_id) =
+        resolve_sync_destination(&client, telegram, db, job.telegram_chat_id).await?;
     let messages = client
         .get_messages_by_id(&peer, &[message_id])
         .await
@@ -1055,7 +1389,9 @@ async fn download_job(
         .to_string();
 
     let total = {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         let mut stmt = conn
             .prepare("SELECT size FROM tcloud_files WHERE id = ?1 LIMIT 1")
             .map_err(|e| e.to_string())?;
@@ -1077,7 +1413,10 @@ async fn download_job(
 
     let temp = target.with_extension(format!(
         "{}.part",
-        target.extension().and_then(|v| v.to_str()).unwrap_or("download")
+        target
+            .extension()
+            .and_then(|v| v.to_str())
+            .unwrap_or("download")
     ));
 
     const DOWNLOAD_CHUNK_SIZE: i32 = 512 * 1024;
@@ -1121,7 +1460,7 @@ async fn download_job(
             2 * 1024 * 1024
         } else {
             network_settings.download_limit_bps
-        }
+        },
     );
     if resume_at > 0 {
         download_throttle.set_transferred(resume_at as u64);
@@ -1134,8 +1473,7 @@ async fn download_job(
     const FAST_DOWNLOAD_MIN_SIZE: i64 = 10 * 1024 * 1024;
     const FAST_DOWNLOAD_WORKERS: i64 = 4;
 
-    let fast_download =
-        total >= FAST_DOWNLOAD_MIN_SIZE
+    let fast_download = total >= FAST_DOWNLOAD_MIN_SIZE
         && !network_settings.economy_mode
         && network_settings.download_limit_bps == 0;
 
@@ -1151,8 +1489,7 @@ async fn download_job(
                 return Err(error);
             }
 
-            let end_chunk =
-                (next_chunk + FAST_DOWNLOAD_WORKERS).min(total_chunks);
+            let end_chunk = (next_chunk + FAST_DOWNLOAD_WORKERS).min(total_chunks);
 
             let mut requests = Vec::new();
 
@@ -1162,9 +1499,7 @@ async fn download_job(
                     .chunk_size(DOWNLOAD_CHUNK_SIZE)
                     .skip_chunks(chunk_index as i32);
 
-                requests.push(async move {
-                    (chunk_index, part_stream.next().await)
-                });
+                requests.push(async move { (chunk_index, part_stream.next().await) });
             }
 
             let results = futures::future::join_all(requests).await;
@@ -1187,13 +1522,10 @@ async fn download_job(
             next_chunk = end_chunk;
         }
     } else {
-        let mut stream = client
-            .iter_download(&media)
-            .chunk_size(DOWNLOAD_CHUNK_SIZE);
+        let mut stream = client.iter_download(&media).chunk_size(DOWNLOAD_CHUNK_SIZE);
 
         if resume_at > 0 {
-            stream =
-                stream.skip_chunks((resume_at / DOWNLOAD_CHUNK_SIZE as i64) as i32);
+            stream = stream.skip_chunks((resume_at / DOWNLOAD_CHUNK_SIZE as i64) as i32);
         }
 
         while let Some(chunk) = stream.next().await.transpose() {
@@ -1243,7 +1575,8 @@ async fn delete_job(
         return Ok(None);
     };
 
-    let (peer,_topic_id)=resolve_sync_destination(&client,telegram,db,job.telegram_chat_id).await?;
+    let (peer, _topic_id) =
+        resolve_sync_destination(&client, telegram, db, job.telegram_chat_id).await?;
     client
         .delete_messages(&peer, &[message_id])
         .await
@@ -1251,16 +1584,24 @@ async fn delete_job(
     Ok(None)
 }
 
-fn finish_job(app:&AppHandle,db:&DbConnection,job:&PendingJob,remote_message_id:Option<i32>)->Result<(),String>{
-    let now=chrono::Utc::now().timestamp();
+fn finish_job(
+    app: &AppHandle,
+    db: &DbConnection,
+    job: &PendingJob,
+    remote_message_id: Option<i32>,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().timestamp();
     {
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-        if matches!(job.operation.as_str(),"upload"|"refresh"){
-            if let Some(message_id)=remote_message_id{
-                let has_followup={
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        if matches!(job.operation.as_str(), "upload" | "refresh") {
+            if let Some(message_id) = remote_message_id {
+                let has_followup = {
                     let mut q=conn.prepare("SELECT 1 FROM tcloud_sync_jobs WHERE file_id=?1 AND id!=?2 AND operation IN ('upload','refresh') AND status IN ('pending','running') LIMIT 1").map_err(|e|e.to_string())?;
-                    q.bind((1,job.file_id)).map_err(|e|e.to_string())?;q.bind((2,job.job_id)).map_err(|e|e.to_string())?;
-                    matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row)
+                    q.bind((1, job.file_id)).map_err(|e| e.to_string())?;
+                    q.bind((2, job.job_id)).map_err(|e| e.to_string())?;
+                    matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row)
                 };
                 let mut update=conn.prepare(
                     "UPDATE tcloud_files SET telegram_message_id=?1,
@@ -1274,25 +1615,48 @@ fn finish_job(app:&AppHandle,db:&DbConnection,job:&PendingJob,remote_message_id:
                      local_status=CASE WHEN sync_status IN ('trashed','deleted','remote_deleted') THEN local_status ELSE 'local' END,
                      updated_at=?3 WHERE id=?4"
                 ).map_err(|e|e.to_string())?;
-                update.bind((1,i64::from(message_id))).map_err(|e|e.to_string())?;
-                update.bind((2,if has_followup{"pending_upload"}else{"synced"})).map_err(|e|e.to_string())?;
-                update.bind((3,now)).map_err(|e|e.to_string())?;
-                update.bind((4,job.file_id)).map_err(|e|e.to_string())?;
-                update.bind((5,job.job_id)).map_err(|e|e.to_string())?;
-                update.next().map_err(|e|e.to_string())?;
+                update
+                    .bind((1, i64::from(message_id)))
+                    .map_err(|e| e.to_string())?;
+                update
+                    .bind((
+                        2,
+                        if has_followup {
+                            "pending_upload"
+                        } else {
+                            "synced"
+                        },
+                    ))
+                    .map_err(|e| e.to_string())?;
+                update.bind((3, now)).map_err(|e| e.to_string())?;
+                update.bind((4, job.file_id)).map_err(|e| e.to_string())?;
+                update.bind((5, job.job_id)).map_err(|e| e.to_string())?;
+                update.next().map_err(|e| e.to_string())?;
             }
-        }else if job.operation=="download"{
+        } else if job.operation == "download" {
             let mut update=conn.prepare("UPDATE tcloud_files SET sync_status='synced',local_status='cached',updated_at=?1 WHERE id=?2").map_err(|e|e.to_string())?;
-            update.bind((1,now)).map_err(|e|e.to_string())?;update.bind((2,job.file_id)).map_err(|e|e.to_string())?;update.next().map_err(|e|e.to_string())?;
-        }else if matches!(job.operation.as_str(),"delete"|"delete_remote"){
-            let old_message=job.telegram_message_id;
-            let old_chat=job.telegram_chat_id.unwrap_or(0);
+            update.bind((1, now)).map_err(|e| e.to_string())?;
+            update.bind((2, job.file_id)).map_err(|e| e.to_string())?;
+            update.next().map_err(|e| e.to_string())?;
+        } else if matches!(job.operation.as_str(), "delete" | "delete_remote") {
+            let old_message = job.telegram_message_id;
+            let old_chat = job.telegram_chat_id.unwrap_or(0);
             let mut update=conn.prepare("UPDATE tcloud_files SET telegram_message_id=NULL,sync_status='deleted',local_status='deleted',updated_at=?1 WHERE id=?2").map_err(|e|e.to_string())?;
-            update.bind((1,now)).map_err(|e|e.to_string())?;update.bind((2,job.file_id)).map_err(|e|e.to_string())?;update.next().map_err(|e|e.to_string())?;
-            if let Some(mid)=old_message{
-                let folder_key=if old_chat==0{"home".to_string()}else{old_chat.to_string()};
-                if let Ok(mut enc)=conn.prepare("DELETE FROM encrypted_files WHERE folder_key=?1 AND message_id=?2"){
-                    let _=enc.bind((1,folder_key.as_str()));let _=enc.bind((2,i64::from(mid)));let _=enc.next();
+            update.bind((1, now)).map_err(|e| e.to_string())?;
+            update.bind((2, job.file_id)).map_err(|e| e.to_string())?;
+            update.next().map_err(|e| e.to_string())?;
+            if let Some(mid) = old_message {
+                let folder_key = if old_chat == 0 {
+                    "home".to_string()
+                } else {
+                    old_chat.to_string()
+                };
+                if let Ok(mut enc) = conn
+                    .prepare("DELETE FROM encrypted_files WHERE folder_key=?1 AND message_id=?2")
+                {
+                    let _ = enc.bind((1, folder_key.as_str()));
+                    let _ = enc.bind((2, i64::from(mid)));
+                    let _ = enc.next();
                 }
             }
         }
@@ -1302,59 +1666,108 @@ fn finish_job(app:&AppHandle,db:&DbConnection,job:&PendingJob,remote_message_id:
              speed_bps=0,eta_seconds=0,remote_commit_message_id=NULL,remote_commit_fingerprint=NULL,
              remote_commit_sha256=NULL,remote_commit_at=NULL,updated_at=?1 WHERE id=?2"
         ).map_err(|e|e.to_string())?;
-        update_job.bind((1,now)).map_err(|e|e.to_string())?;update_job.bind((2,job.job_id)).map_err(|e|e.to_string())?;update_job.next().map_err(|e|e.to_string())?;
+        update_job.bind((1, now)).map_err(|e| e.to_string())?;
+        update_job
+            .bind((2, job.job_id))
+            .map_err(|e| e.to_string())?;
+        update_job.next().map_err(|e| e.to_string())?;
     }
-    if matches!(job.operation.as_str(),"upload"|"refresh"){
-        if let Some(message_id)=remote_message_id{
-            let mark_in_sync={
-                let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-                let mut q=conn.prepare("SELECT sync_status FROM tcloud_files WHERE id=?1 LIMIT 1").map_err(|e|e.to_string())?;
-                q.bind((1,job.file_id)).map_err(|e|e.to_string())?;
-                matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row) && q.read::<String,_>(0).unwrap_or_default()=="synced"
+    if matches!(job.operation.as_str(), "upload" | "refresh") {
+        if let Some(message_id) = remote_message_id {
+            let mark_in_sync = {
+                let conn = db
+                    .lock()
+                    .map_err(|_| "database lock poisoned".to_string())?;
+                let mut q = conn
+                    .prepare("SELECT sync_status FROM tcloud_files WHERE id=?1 LIMIT 1")
+                    .map_err(|e| e.to_string())?;
+                q.bind((1, job.file_id)).map_err(|e| e.to_string())?;
+                matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row)
+                    && q.read::<String, _>(0).unwrap_or_default() == "synced"
             };
-            if let Err(error)=crate::commands::tcloud_cfapi::finalize_local_upload(app,db,job.file_id,message_id,mark_in_sync){
+            if let Err(error) = crate::commands::tcloud_cfapi::finalize_local_upload(
+                app,
+                db,
+                job.file_id,
+                message_id,
+                mark_in_sync,
+            ) {
                 log::warn!("TCloud: upload remoto concluído, mas o placeholder local precisa de reconciliação: {}",error);
             }
         }
     }
+    // Refresh the open Explorer view as soon as a durable operation reaches the
+    // cloud. Without this event the upload was already complete, but the user
+    // could wait for the next periodic Telegram refresh before seeing it.
+    let _ = app.emit("tcloud:foundation5-data-changed", ());
     Ok(())
 }
 
-fn fail_job(db:&DbConnection,job_id:i64,error:&str)->Result<(),String>{
+fn fail_job(db: &DbConnection, job_id: i64, error: &str) -> Result<(), String> {
     // Terminal/retry failures must not leave progress samples resident forever
     // during multi-hour sessions. A retry starts with a fresh sampler anyway.
     crate::sync::progress::forget_transfer(job_id);
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-    let now=chrono::Utc::now().timestamp();
-    let attempts={
-        let mut q=conn.prepare("SELECT COALESCE(attempts,0) FROM tcloud_sync_jobs WHERE id=?1 LIMIT 1").map_err(|e|e.to_string())?;
-        q.bind((1,job_id)).map_err(|e|e.to_string())?;
-        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){q.read::<i64,_>(0).unwrap_or(0)+1}else{1}
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let now = chrono::Utc::now().timestamp();
+    let attempts = {
+        let mut q = conn
+            .prepare("SELECT COALESCE(attempts,0) FROM tcloud_sync_jobs WHERE id=?1 LIMIT 1")
+            .map_err(|e| e.to_string())?;
+        q.bind((1, job_id)).map_err(|e| e.to_string())?;
+        if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            q.read::<i64, _>(0).unwrap_or(0) + 1
+        } else {
+            1
+        }
     };
-    let quiet_retries={
-        let mut q=conn.prepare("SELECT value FROM tcloud_settings WHERE key='desktop_quiet_retries' LIMIT 1").map_err(|e|e.to_string())?;
-        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){
-            matches!(q.read::<String,_>(0).unwrap_or_else(|_|"1".into()).as_str(),"1"|"true"|"yes"|"on")
-        }else{true}
+    let quiet_retries = {
+        let mut q = conn
+            .prepare("SELECT value FROM tcloud_settings WHERE key='desktop_quiet_retries' LIMIT 1")
+            .map_err(|e| e.to_string())?;
+        if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            matches!(
+                q.read::<String, _>(0)
+                    .unwrap_or_else(|_| "1".into())
+                    .as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        } else {
+            true
+        }
     };
-    let terminal=attempts>=if quiet_retries{8}else{3};
-    let delay=match attempts{1=>5,2=>15,3=>45,4=>120,5=>300,6=>900,_=>1800};
-    let next=now+delay;
+    let terminal = attempts >= if quiet_retries { 8 } else { 3 };
+    let delay = match attempts {
+        1 => 5,
+        2 => 15,
+        3 => 45,
+        4 => 120,
+        5 => 300,
+        6 => 900,
+        _ => 1800,
+    };
+    let next = now + delay;
     let mut stmt=conn.prepare(
         "UPDATE tcloud_sync_jobs SET status=?1,error=?2,attempts=?3,next_attempt_at=?4,updated_at=?5 WHERE id=?6"
     ).map_err(|e|e.to_string())?;
-    stmt.bind((1,if terminal{"failed"}else{"pending"})).map_err(|e|e.to_string())?;
-    stmt.bind((2,error)).map_err(|e|e.to_string())?;
-    stmt.bind((3,attempts)).map_err(|e|e.to_string())?;
-    if terminal{stmt.bind((4,sqlite::Value::Null)).map_err(|e|e.to_string())?;}else{stmt.bind((4,next)).map_err(|e|e.to_string())?;}
-    stmt.bind((5,now)).map_err(|e|e.to_string())?;stmt.bind((6,job_id)).map_err(|e|e.to_string())?;stmt.next().map_err(|e|e.to_string())?;
+    stmt.bind((1, if terminal { "failed" } else { "pending" }))
+        .map_err(|e| e.to_string())?;
+    stmt.bind((2, error)).map_err(|e| e.to_string())?;
+    stmt.bind((3, attempts)).map_err(|e| e.to_string())?;
+    if terminal {
+        stmt.bind((4, sqlite::Value::Null))
+            .map_err(|e| e.to_string())?;
+    } else {
+        stmt.bind((4, next)).map_err(|e| e.to_string())?;
+    }
+    stmt.bind((5, now)).map_err(|e| e.to_string())?;
+    stmt.bind((6, job_id)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-async fn wait_for_job_control(
-    db: &DbConnection,
-    job_id: i64,
-) -> Result<(), String> {
+async fn wait_for_job_control(db: &DbConnection, job_id: i64) -> Result<(), String> {
     loop {
         match job_control_state(db, job_id)? {
             JobControlState::Continue => return Ok(()),
@@ -1369,4 +1782,56 @@ async fn wait_for_job_control(
     }
 }
 
+#[cfg(test)]
+mod reliability_tests {
+    use super::reconcile_waiting_jobs;
 
+    fn queue_db() -> sqlite::Connection {
+        let conn = sqlite::open(":memory:").expect("open memory database");
+        conn.execute(
+            "CREATE TABLE tcloud_sync_jobs(
+                id INTEGER PRIMARY KEY,
+                file_id INTEGER NOT NULL,
+                operation TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error TEXT,
+                cancel_requested INTEGER NOT NULL DEFAULT 0,
+                speed_bps INTEGER NOT NULL DEFAULT 0,
+                eta_seconds INTEGER,
+                updated_at INTEGER NOT NULL DEFAULT 0
+             )",
+        )
+        .expect("create queue");
+        conn
+    }
+
+    #[test]
+    fn reconciliation_keeps_running_transfer_and_cancels_waiting_duplicate() {
+        let conn = queue_db();
+        conn.execute(
+            "INSERT INTO tcloud_sync_jobs(id,file_id,operation,status) VALUES
+             (1,10,'upload','running'),(2,10,'refresh','pending')",
+        )
+        .expect("seed queue");
+        assert_eq!(reconcile_waiting_jobs(&conn, 100).unwrap(), 1);
+        let status: String = conn
+            .prepare("SELECT status FROM tcloud_sync_jobs WHERE id=2")
+            .and_then(|mut query| {
+                query.next()?;
+                query.read(0)
+            })
+            .expect("read status");
+        assert_eq!(status, "cancelled");
+    }
+
+    #[test]
+    fn reconciliation_preserves_different_operations() {
+        let conn = queue_db();
+        conn.execute(
+            "INSERT INTO tcloud_sync_jobs(id,file_id,operation,status) VALUES
+             (1,10,'upload','pending'),(2,10,'download','pending')",
+        )
+        .expect("seed queue");
+        assert_eq!(reconcile_waiting_jobs(&conn, 100).unwrap(), 0);
+    }
+}
