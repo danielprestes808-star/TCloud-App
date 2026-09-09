@@ -6224,7 +6224,7 @@ dependencies = [
 
 [[package]]
 name = "tcloud"
-version = "13.0.57"
+version = "13.0.58"
 dependencies = [
  "actix-cors",
  "actix-files",
