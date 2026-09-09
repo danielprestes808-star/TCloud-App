@@ -1,6 +1,9 @@
 use crate::db::DbConnection;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::mpsc;
 use tauri::{AppHandle, Manager, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +77,60 @@ pub struct ProBackupSource {
 pub struct ProBackupScanResult {
     pub files_found: usize,
     pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PcKnownFolder {
+    pub key: String,
+    pub label: String,
+    pub path: String,
+    pub available: bool,
+}
+
+fn pc_folder_candidate(
+    home: &Path,
+    one_drive: Option<&Path>,
+    names: &[&str],
+) -> std::path::PathBuf {
+    for base in one_drive.into_iter().chain(std::iter::once(home)) {
+        for name in names {
+            let candidate = base.join(name);
+            if candidate.is_dir() {
+                return candidate;
+            }
+        }
+    }
+    home.join(names[0])
+}
+
+#[tauri::command]
+pub fn tcloud_pc_known_folders() -> Vec<PcKnownFolder> {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let one_drive = std::env::var_os("OneDrive").map(std::path::PathBuf::from);
+    let definitions = [
+        (
+            "desktop",
+            "Área de Trabalho",
+            vec!["Desktop", "Área de Trabalho"],
+        ),
+        ("documents", "Documentos", vec!["Documents", "Documentos"]),
+        ("pictures", "Imagens", vec!["Pictures", "Imagens"]),
+        ("videos", "Vídeos", vec!["Videos", "Vídeos"]),
+        ("music", "Músicas", vec!["Music", "Músicas"]),
+    ];
+
+    definitions
+        .into_iter()
+        .map(|(key, label, names)| {
+            let path = pc_folder_candidate(&home, one_drive.as_deref(), &names);
+            PcKnownFolder {
+                key: key.to_string(),
+                label: label.to_string(),
+                available: path.is_dir(),
+                path: path.to_string_lossy().to_string(),
+            }
+        })
+        .collect()
 }
 
 fn ensure_schema(conn: &sqlite::Connection) -> Result<(), String> {
@@ -162,19 +219,20 @@ fn ensure_schema(conn: &sqlite::Connection) -> Result<(), String> {
     let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN file_id INTEGER");
     let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN relative_path TEXT");
     let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN expires_at INTEGER");
-    let _ = conn.execute("ALTER TABLE tcloud_trash ADD COLUMN status TEXT NOT NULL DEFAULT 'trashed'");
+    let _ =
+        conn.execute("ALTER TABLE tcloud_trash ADD COLUMN status TEXT NOT NULL DEFAULT 'trashed'");
     Ok(())
 }
 
 fn scalar_i64(conn: &sqlite::Connection, sql: &str) -> i64 {
-    let Ok(mut stmt) = conn.prepare(sql) else { return 0; };
+    let Ok(mut stmt) = conn.prepare(sql) else {
+        return 0;
+    };
     match stmt.next() {
         Ok(sqlite::State::Row) => stmt.read::<i64, _>(0).unwrap_or(0),
         _ => 0,
     }
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProIndexFileInput {
@@ -208,16 +266,24 @@ fn tcloud_pro_index_upsert_files_inner(
     let remote_ids: HashSet<i64> = files.iter().map(|file| file.message_id).collect();
     let mut written = 0usize;
     {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         ensure_schema(&conn)?;
         conn.execute("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
         let result: Result<(), String> = (|| {
             for file in &files {
                 // Version snapshots remain as real Telegram messages, but are hidden
                 // from the live Explorer projection and surfaced only in Versionamento.
-                if crate::commands::tcloud_sync_maturity::is_version_message(&conn,chat_key,file.message_id)
-                    || crate::commands::tcloud_sync_maturity::is_trash_message(&conn,chat_key,file.message_id)
-                {
+                if crate::commands::tcloud_sync_maturity::is_version_message(
+                    &conn,
+                    chat_key,
+                    file.message_id,
+                ) || crate::commands::tcloud_sync_maturity::is_trash_message(
+                    &conn,
+                    chat_key,
+                    file.message_id,
+                ) {
                     continue;
                 }
                 let existing = {
@@ -226,67 +292,117 @@ fn tcloud_pro_index_upsert_files_inner(
                          WHERE telegram_chat_id=?1 AND telegram_message_id=?2 AND sync_status!='trashed'
                          ORDER BY CASE WHEN path LIKE 'telegram:%' THEN 1 ELSE 0 END,id LIMIT 1"
                     ).map_err(|e|e.to_string())?;
-                    q.bind((1,chat_key)).map_err(|e|e.to_string())?;
-                    q.bind((2,file.message_id)).map_err(|e|e.to_string())?;
-                    if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){
+                    q.bind((1, chat_key)).map_err(|e| e.to_string())?;
+                    q.bind((2, file.message_id)).map_err(|e| e.to_string())?;
+                    if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
                         Some((
-    q.read::<i64,_>(0).map_err(|e|e.to_string())?,
-    q.read::<String,_>(1).unwrap_or_default(),
-    q.read::<i64,_>(2).unwrap_or(0),
-    q.read::<String,_>(3).unwrap_or_default(),
-    q.read::<Option<String>,_>(4).unwrap_or(None),
-    q.read::<String,_>(5).unwrap_or_default(),
-    q.read::<String,_>(6).unwrap_or_default(),
-))
-                    }else{None}
+                            q.read::<i64, _>(0).map_err(|e| e.to_string())?,
+                            q.read::<String, _>(1).unwrap_or_default(),
+                            q.read::<i64, _>(2).unwrap_or(0),
+                            q.read::<String, _>(3).unwrap_or_default(),
+                            q.read::<Option<String>, _>(4).unwrap_or(None),
+                            q.read::<String, _>(5).unwrap_or_default(),
+                            q.read::<String, _>(6).unwrap_or_default(),
+                        ))
+                    } else {
+                        None
+                    }
                 };
-                let created=file.created_at.as_deref().and_then(|value|value.parse::<i64>().ok()).unwrap_or(now);
-                if let Some((file_id,old_name,old_size,status,local_hash,local_path,local_status))=existing{
-                    let real_local_edit =
-    !local_path.is_empty()
-    && !local_path.starts_with("telegram:")
-    && !matches!(
-        local_status.as_str(),
-        "cloud_only" | "online" | "deleted"
-    )
-    && crate::sync::watcher_runtime::is_materialized_user_file(
-        std::path::Path::new(&local_path)
-    );
+                let created = file
+                    .created_at
+                    .as_deref()
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .unwrap_or(now);
+                if let Some((
+                    file_id,
+                    old_name,
+                    old_size,
+                    status,
+                    local_hash,
+                    local_path,
+                    local_status,
+                )) = existing
+                {
+                    let real_local_edit = !local_path.is_empty()
+                        && !local_path.starts_with("telegram:")
+                        && !matches!(local_status.as_str(), "cloud_only" | "online" | "deleted")
+                        && crate::sync::watcher_runtime::is_materialized_user_file(
+                            std::path::Path::new(&local_path),
+                        );
 
-if matches!(status.as_str(),"pending_upload"|"uploading")
-    && old_name!=file.name
-    && real_local_edit
-{
+                    if matches!(status.as_str(), "pending_upload" | "uploading")
+                        && old_name != file.name
+                        && real_local_edit
+                    {
                         // Same remote identity changed while local bytes are waiting
                         // to upload: this is a real PC x Telegram metadata conflict.
                         crate::commands::tcloud_conflicts::record_remote_metadata_conflict(
-                            &conn,file_id,file.message_id,&old_name,Some(local_path.as_str()),old_size,&file.name,file.size,local_hash.as_deref()
+                            &conn,
+                            file_id,
+                            file.message_id,
+                            &old_name,
+                            Some(local_path.as_str()),
+                            old_size,
+                            &file.name,
+                            file.size,
+                            local_hash.as_deref(),
                         )?;
-                    }else if matches!(status.as_str(),"pending_upload"|"uploading"|"pending_move"|"pending_delete"|"conflict"){
+                    } else if matches!(
+                        status.as_str(),
+                        "pending_upload"
+                            | "uploading"
+                            | "pending_move"
+                            | "pending_delete"
+                            | "conflict"
+                    ) {
                         // The remote listing still contains the last committed
                         // Telegram version while a local operation is in flight.
                         // Preserve the local intent instead of turning the expected
                         // old snapshot into a false conflict.
-                    }else{
+                    } else {
                         let mut update=conn.prepare(
                             "UPDATE tcloud_files SET name=CASE WHEN TRIM(?1)<>'' THEN ?1 ELSE name END,size=?2,mime_type=COALESCE(?3,mime_type),telegram_chat_id=?4,telegram_message_id=?5,
                              sync_status='synced',updated_at=?6 WHERE id=?7"
                         ).map_err(|e|e.to_string())?;
-                        update.bind((1,file.name.as_str())).map_err(|e|e.to_string())?;update.bind((2,file.size)).map_err(|e|e.to_string())?;
-                        update.bind((3,file.mime_type.as_deref())).map_err(|e|e.to_string())?;update.bind((4,chat_key)).map_err(|e|e.to_string())?;update.bind((5,file.message_id)).map_err(|e|e.to_string())?;
-                        update.bind((6,now)).map_err(|e|e.to_string())?;update.bind((7,file_id)).map_err(|e|e.to_string())?;update.next().map_err(|e|e.to_string())?;
+                        update
+                            .bind((1, file.name.as_str()))
+                            .map_err(|e| e.to_string())?;
+                        update.bind((2, file.size)).map_err(|e| e.to_string())?;
+                        update
+                            .bind((3, file.mime_type.as_deref()))
+                            .map_err(|e| e.to_string())?;
+                        update.bind((4, chat_key)).map_err(|e| e.to_string())?;
+                        update
+                            .bind((5, file.message_id))
+                            .map_err(|e| e.to_string())?;
+                        update.bind((6, now)).map_err(|e| e.to_string())?;
+                        update.bind((7, file_id)).map_err(|e| e.to_string())?;
+                        update.next().map_err(|e| e.to_string())?;
                     }
-                }else{
-                    let path=format!("telegram:{chat_key}:{}",file.message_id);
+                } else {
+                    let path = format!("telegram:{chat_key}:{}", file.message_id);
                     let mut insert=conn.prepare(
                         "INSERT INTO tcloud_files(name,path,size,mime_type,telegram_chat_id,telegram_message_id,sync_status,local_status,created_at,updated_at)
                          VALUES(?1,?2,?3,?4,?5,?6,'synced','cloud_only',?7,?8)
                          ON CONFLICT(path) DO UPDATE SET name=CASE WHEN TRIM(excluded.name)<>'' THEN excluded.name ELSE tcloud_files.name END,size=excluded.size,mime_type=COALESCE(excluded.mime_type,tcloud_files.mime_type),sync_status='synced',local_status='cloud_only',updated_at=excluded.updated_at"
                     ).map_err(|e|e.to_string())?;
-                    insert.bind((1,file.name.as_str())).map_err(|e|e.to_string())?;insert.bind((2,path.as_str())).map_err(|e|e.to_string())?;insert.bind((3,file.size)).map_err(|e|e.to_string())?;
-                    insert.bind((4,file.mime_type.as_deref())).map_err(|e|e.to_string())?;insert.bind((5,chat_key)).map_err(|e|e.to_string())?;insert.bind((6,file.message_id)).map_err(|e|e.to_string())?;insert.bind((7,created)).map_err(|e|e.to_string())?;insert.bind((8,now)).map_err(|e|e.to_string())?;insert.next().map_err(|e|e.to_string())?;
+                    insert
+                        .bind((1, file.name.as_str()))
+                        .map_err(|e| e.to_string())?;
+                    insert.bind((2, path.as_str())).map_err(|e| e.to_string())?;
+                    insert.bind((3, file.size)).map_err(|e| e.to_string())?;
+                    insert
+                        .bind((4, file.mime_type.as_deref()))
+                        .map_err(|e| e.to_string())?;
+                    insert.bind((5, chat_key)).map_err(|e| e.to_string())?;
+                    insert
+                        .bind((6, file.message_id))
+                        .map_err(|e| e.to_string())?;
+                    insert.bind((7, created)).map_err(|e| e.to_string())?;
+                    insert.bind((8, now)).map_err(|e| e.to_string())?;
+                    insert.next().map_err(|e| e.to_string())?;
                 }
-                written+=1;
+                written += 1;
             }
 
             // A complete folder listing is also our remote-delete signal. The
@@ -296,39 +412,44 @@ if matches!(status.as_str(),"pending_upload"|"uploading")
             // Uma leitura vazia ou parcial do Telegram nao prova exclusao remota.
             // Nunca marque arquivos como remote_deleted apenas porque nao apareceram
             // em uma unica varredura.
-            if false && remote_ids.len()<50_000{
+            if false && remote_ids.len() < 50_000 {
                 let mut q=conn.prepare(
                     "SELECT id,telegram_message_id,sync_status FROM tcloud_files
                      WHERE telegram_chat_id=?1 AND telegram_message_id IS NOT NULL AND sync_status NOT IN ('trashed','deleted','pending_delete')"
                 ).map_err(|e|e.to_string())?;
-                q.bind((1,chat_key)).map_err(|e|e.to_string())?;
-                let mut stale=Vec::new();
-                while let sqlite::State::Row=q.next().map_err(|e|e.to_string())?{
-                    let id=q.read::<i64,_>(0).unwrap_or(0);let mid=q.read::<i64,_>(1).unwrap_or(0);let status=q.read::<String,_>(2).unwrap_or_default();
-                    if mid>0 && !remote_ids.contains(&mid){stale.push((id,status));}
+                q.bind((1, chat_key)).map_err(|e| e.to_string())?;
+                let mut stale = Vec::new();
+                while let sqlite::State::Row = q.next().map_err(|e| e.to_string())? {
+                    let id = q.read::<i64, _>(0).unwrap_or(0);
+                    let mid = q.read::<i64, _>(1).unwrap_or(0);
+                    let status = q.read::<String, _>(2).unwrap_or_default();
+                    if mid > 0 && !remote_ids.contains(&mid) {
+                        stale.push((id, status));
+                    }
                 }
                 drop(q);
-                for (id,status) in stale{
-                    if matches!(status.as_str(),"pending_upload"|"uploading"){
+                for (id, status) in stale {
+                    if matches!(status.as_str(), "pending_upload" | "uploading") {
                         let mut meta=conn.prepare("SELECT telegram_message_id,name,size,local_fingerprint,path,local_status FROM tcloud_files WHERE id=?1 LIMIT 1").map_err(|e|e.to_string())?;
-                        meta.bind((1,id)).map_err(|e|e.to_string())?;
-                        if matches!(meta.next().map_err(|e|e.to_string())?,sqlite::State::Row){
-                            let _mid=meta.read::<Option<i64>,_>(0).unwrap_or(None).unwrap_or(0);
-                            let name=meta.read::<String,_>(1).unwrap_or_else(|_|"arquivo".into());
-                            let size=meta.read::<i64,_>(2).unwrap_or(0);
-                            let hash=meta.read::<Option<String>,_>(3).unwrap_or(None);
-                            let local_path=meta.read::<String,_>(4).unwrap_or_default();
-                            let local_status=meta.read::<String,_>(5).unwrap_or_default();
+                        meta.bind((1, id)).map_err(|e| e.to_string())?;
+                        if matches!(meta.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+                            let _mid = meta.read::<Option<i64>, _>(0).unwrap_or(None).unwrap_or(0);
+                            let name = meta
+                                .read::<String, _>(1)
+                                .unwrap_or_else(|_| "arquivo".into());
+                            let size = meta.read::<i64, _>(2).unwrap_or(0);
+                            let hash = meta.read::<Option<String>, _>(3).unwrap_or(None);
+                            let local_path = meta.read::<String, _>(4).unwrap_or_default();
+                            let local_status = meta.read::<String, _>(5).unwrap_or_default();
 
-                            let real_local_edit =
-                                !local_path.is_empty()
+                            let real_local_edit = !local_path.is_empty()
                                 && !local_path.starts_with("telegram:")
                                 && !matches!(
                                     local_status.as_str(),
                                     "cloud_only" | "online" | "deleted"
                                 )
                                 && crate::sync::watcher_runtime::is_materialized_user_file(
-                                    std::path::Path::new(&local_path)
+                                    std::path::Path::new(&local_path),
                                 );
                             if real_local_edit {
                                 crate::commands::tcloud_conflicts::record_remote_metadata_conflict(
@@ -340,7 +461,7 @@ if matches!(status.as_str(),"pending_upload"|"uploading")
                                     size,
                                     "(excluído no Telegram)",
                                     0,
-                                    hash.as_deref()
+                                    hash.as_deref(),
                                 )?;
                             } else {
                                 log::debug!(
@@ -351,23 +472,35 @@ if matches!(status.as_str(),"pending_upload"|"uploading")
                         }
                         continue;
                     }
-                    if matches!(status.as_str(),"pending_move"|"pending_delete"|"conflict"){continue;}
+                    if matches!(
+                        status.as_str(),
+                        "pending_move" | "pending_delete" | "conflict"
+                    ) {
+                        continue;
+                    }
                     let mut mark=conn.prepare("UPDATE tcloud_files SET sync_status='remote_deleted',updated_at=?1 WHERE id=?2").map_err(|e|e.to_string())?;
-                    mark.bind((1,now)).map_err(|e|e.to_string())?;mark.bind((2,id)).map_err(|e|e.to_string())?;mark.next().map_err(|e|e.to_string())?;
+                    mark.bind((1, now)).map_err(|e| e.to_string())?;
+                    mark.bind((2, id)).map_err(|e| e.to_string())?;
+                    mark.next().map_err(|e| e.to_string())?;
                 }
             }
-            let scan_key=format!("remote_scan:{}",chat_key);
+            let scan_key = format!("remote_scan:{}", chat_key);
             let mut scan=conn.prepare(
                 "INSERT INTO tcloud_index_meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
             ).map_err(|e|e.to_string())?;
-            let scan_value=now.to_string();
-            scan.bind((1,scan_key.as_str())).map_err(|e|e.to_string())?;
-            scan.bind((2,scan_value.as_str())).map_err(|e|e.to_string())?;
-            scan.next().map_err(|e|e.to_string())?;
+            let scan_value = now.to_string();
+            scan.bind((1, scan_key.as_str()))
+                .map_err(|e| e.to_string())?;
+            scan.bind((2, scan_value.as_str()))
+                .map_err(|e| e.to_string())?;
+            scan.next().map_err(|e| e.to_string())?;
             Ok(())
         })();
-        if let Err(error)=result{let _=conn.execute("ROLLBACK");return Err(error);}
-        conn.execute("COMMIT").map_err(|e|e.to_string())?;
+        if let Err(error) = result {
+            let _ = conn.execute("ROLLBACK");
+            return Err(error);
+        }
+        conn.execute("COMMIT").map_err(|e| e.to_string())?;
     }
     // Resolve the default "Guardar as duas" strategy immediately after the
     // SQLite transaction is committed. This preserves PC bytes as a new file
@@ -377,8 +510,11 @@ if matches!(status.as_str(),"pending_upload"|"uploading")
 
     // Keep the Explorer projection current after Telegram changes. This call is
     // incremental: unchanged identities are skipped without touching the file.
-    if let Err(error)=crate::commands::tcloud_cfapi::reconcile_remote_chat(app,db,chat_key){
-        log::warn!("TCloud: índice Telegram atualizado, mas a projeção CFAPI será reconciliada depois: {}",error);
+    if let Err(error) = crate::commands::tcloud_cfapi::reconcile_remote_chat(app, db, chat_key) {
+        log::warn!(
+            "TCloud: índice Telegram atualizado, mas a projeção CFAPI será reconciliada depois: {}",
+            error
+        );
     }
     Ok(written)
 }
@@ -397,54 +533,91 @@ pub async fn tcloud_pro_index_upsert_files(
         let result = tcloud_pro_index_upsert_files_inner(&app, &db, folder_id, files);
         let elapsed = started.elapsed();
         if elapsed >= std::time::Duration::from_secs(2) {
-            log::warn!("TCloud: indexação de {} arquivo(s) levou {:?}; executada em worker de fundo.", file_count, elapsed);
+            log::warn!(
+                "TCloud: indexação de {} arquivo(s) levou {:?}; executada em worker de fundo.",
+                file_count,
+                elapsed
+            );
         }
         result
     })
-        .await
-        .map_err(|e| format!("index update worker failed: {e}"))?
+    .await
+    .map_err(|e| format!("index update worker failed: {e}"))?
 }
 
-fn known_remote_destinations(db:&DbConnection)->Vec<Option<i64>>{
+fn known_remote_destinations(db: &DbConnection) -> Vec<Option<i64>> {
     use std::collections::HashSet;
-    let Ok(conn)=db.lock() else{return vec![None];};
-    let mut forum_chats=HashSet::new();
-    if let Ok(mut q)=conn.prepare("SELECT chat_id FROM tcloud_forums WHERE chat_id IS NOT NULL"){
-        while let Ok(sqlite::State::Row)=q.next(){if let Ok(id)=q.read::<i64,_>(0){forum_chats.insert(id);}}
+    let Ok(conn) = db.lock() else {
+        return vec![None];
+    };
+    let mut forum_chats = HashSet::new();
+    if let Ok(mut q) = conn.prepare("SELECT chat_id FROM tcloud_forums WHERE chat_id IS NOT NULL") {
+        while let Ok(sqlite::State::Row) = q.next() {
+            if let Ok(id) = q.read::<i64, _>(0) {
+                forum_chats.insert(id);
+            }
+        }
     }
-    let mut values=Vec::new();values.push(None);
+    let mut values = Vec::new();
+    values.push(None);
     if let Ok(mut q)=conn.prepare("SELECT channel_id FROM folder_metadata WHERE channel_id IS NOT NULL ORDER BY display_order,name"){
         while let Ok(sqlite::State::Row)=q.next(){
             if let Ok(id)=q.read::<i64,_>(0){if id!=0 && !forum_chats.contains(&id){values.push(Some(id));}}
         }
     }
-    if let Ok(mut q)=conn.prepare("SELECT id FROM tcloud_forum_topics WHERE id>0 ORDER BY id"){
-        while let Ok(sqlite::State::Row)=q.next(){if let Ok(id)=q.read::<i64,_>(0){values.push(Some(-id));}}
+    if let Ok(mut q) = conn.prepare("SELECT id FROM tcloud_forum_topics WHERE id>0 ORDER BY id") {
+        while let Ok(sqlite::State::Row) = q.next() {
+            if let Ok(id) = q.read::<i64, _>(0) {
+                values.push(Some(-id));
+            }
+        }
     }
-    let mut seen=HashSet::new();
-    values.into_iter().filter(|value|seen.insert(value.unwrap_or(0))).take(256).collect()
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.unwrap_or(0)))
+        .take(256)
+        .collect()
 }
 
-fn remote_scan_due(db:&DbConnection,folder_id:Option<i64>,min_age_seconds:i64)->bool{
-    let chat_key=folder_id.unwrap_or(0);
-    let Ok(conn)=db.lock() else{return false;};
-    let key=format!("remote_scan:{}",chat_key);
-    let Ok(mut q)=conn.prepare("SELECT value FROM tcloud_index_meta WHERE key=?1 LIMIT 1") else{return true;};
-    if q.bind((1,key.as_str())).is_err(){return true;}
-    if !matches!(q.next(),Ok(sqlite::State::Row)){return true;}
-    let last=q.read::<String,_>(0).ok().and_then(|value|value.parse::<i64>().ok()).unwrap_or(0);
-    chrono::Utc::now().timestamp().saturating_sub(last)>=min_age_seconds
+fn remote_scan_due(db: &DbConnection, folder_id: Option<i64>, min_age_seconds: i64) -> bool {
+    let chat_key = folder_id.unwrap_or(0);
+    let Ok(conn) = db.lock() else {
+        return false;
+    };
+    let key = format!("remote_scan:{}", chat_key);
+    let Ok(mut q) = conn.prepare("SELECT value FROM tcloud_index_meta WHERE key=?1 LIMIT 1") else {
+        return true;
+    };
+    if q.bind((1, key.as_str())).is_err() {
+        return true;
+    }
+    if !matches!(q.next(), Ok(sqlite::State::Row)) {
+        return true;
+    }
+    let last = q
+        .read::<String, _>(0)
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    chrono::Utc::now().timestamp().saturating_sub(last) >= min_age_seconds
 }
 
-fn has_recent_foreground_activity(db:&DbConnection,seconds:i64)->bool{
-    let Ok(conn)=db.lock() else{return true;};
-    let threshold=chrono::Utc::now().timestamp().saturating_sub(seconds.max(1));
-    if let Ok(mut q)=conn.prepare(
+fn has_recent_foreground_activity(db: &DbConnection, seconds: i64) -> bool {
+    let Ok(conn) = db.lock() else {
+        return true;
+    };
+    let threshold = chrono::Utc::now()
+        .timestamp()
+        .saturating_sub(seconds.max(1));
+    if let Ok(mut q) = conn.prepare(
         "SELECT 1 FROM tcloud_sync_jobs
          WHERE updated_at>=?1 AND COALESCE(priority,0)>=100
-           AND status IN ('pending','running','completed') LIMIT 1"
-    ){
-        if q.bind((1,threshold)).is_ok() && matches!(q.next(),Ok(sqlite::State::Row)){return true;}
+           AND status IN ('pending','running','completed') LIMIT 1",
+    ) {
+        if q.bind((1, threshold)).is_ok() && matches!(q.next(), Ok(sqlite::State::Row)) {
+            return true;
+        }
     }
     if let Ok(mut exists)=conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tcloud_cfapi_pending_ops' LIMIT 1"){
         if matches!(exists.next(),Ok(sqlite::State::Row)){
@@ -456,14 +629,18 @@ fn has_recent_foreground_activity(db:&DbConnection,seconds:i64)->bool{
     false
 }
 
-fn has_foreground_sync_work(db:&DbConnection)->bool{
-    let Ok(conn)=db.lock() else{return true;};
+fn has_foreground_sync_work(db: &DbConnection) -> bool {
+    let Ok(conn) = db.lock() else {
+        return true;
+    };
     let Ok(mut q)=conn.prepare(
         "SELECT COUNT(*) FROM tcloud_sync_jobs
          WHERE status IN ('pending','running') AND COALESCE(paused,0)=0 AND COALESCE(cancel_requested,0)=0
            AND COALESCE(priority,0)>=80"
     ) else{return true;};
-    if matches!(q.next(),Ok(sqlite::State::Row)) && q.read::<i64,_>(0).unwrap_or(0)>0{return true;}
+    if matches!(q.next(), Ok(sqlite::State::Row)) && q.read::<i64, _>(0).unwrap_or(0) > 0 {
+        return true;
+    }
     // Rename/move/delete callbacks use the dedicated CFAPI durable queue. Yield
     // remote inventory while those user actions are still pending, but do not let
     // an old terminally-failed file status starve background reconciliation forever.
@@ -480,63 +657,131 @@ fn has_foreground_sync_work(db:&DbConnection)->bool{
 /// TCloud 12.3 remote -> Explorer reconciler. It scans one known Telegram
 /// destination per pass instead of hammering every chat at startup. Normal UI
 /// folder loads still reconcile immediately; this worker covers background use.
-pub fn start_remote_reconcile_worker(app:AppHandle){
-    tauri::async_runtime::spawn(async move{
-        let mut cursor=0usize;
-        let mut maintenance_tick=0u32;
+pub fn start_remote_reconcile_worker(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut cursor = 0usize;
+        let mut maintenance_tick = 0u32;
+        // 13.0.17: a large durable transfer/CFAPI queue must not starve
+        // Telegram -> Explorer inventory forever. We still yield to fresh
+        // foreground work, but force one small metadata pass periodically.
+        let mut busy_skips = 0u8;
         // 12.7.1: startup is cache-first. Give CFAPI, the watcher and the visible
         // folder a quiet window; the UI can still refresh the folder the user opens.
         // 14.25: inicializacao mais rapida da sincronizacao Telegram -> Explorer.
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        loop{
-            maintenance_tick=maintenance_tick.wrapping_add(1);
-            if maintenance_tick%60==1{
-                let db=app.state::<DbConnection>();
-                if let Err(error)=crate::commands::tcloud_sync_maturity::queue_expired_trash(db.inner()){log::warn!("TCloud Trash maintenance: {}",error);}
+        loop {
+            maintenance_tick = maintenance_tick.wrapping_add(1);
+            if maintenance_tick % 60 == 1 {
+                let db = app.state::<DbConnection>();
+                if let Err(error) =
+                    crate::commands::tcloud_sync_maturity::queue_expired_trash(db.inner())
+                {
+                    log::warn!("TCloud Trash maintenance: {}", error);
+                }
             }
-            let foreground={let db=app.state::<DbConnection>();has_foreground_sync_work(db.inner())};
-            let recent_foreground={let db=app.state::<DbConnection>();has_recent_foreground_activity(db.inner(),10)};
-            if foreground || recent_foreground{
+            let foreground = {
+                let db = app.state::<DbConnection>();
+                has_foreground_sync_work(db.inner())
+            };
+            let recent_foreground = {
+                let db = app.state::<DbConnection>();
+                has_recent_foreground_activity(db.inner(), 10)
+            };
+            let busy = foreground || recent_foreground;
+            let force_metadata_pass = busy && busy_skips >= 4;
+            if busy && !force_metadata_pass {
+                busy_skips = busy_skips.saturating_add(1);
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
-            let connected={
-                let state=app.state::<crate::TelegramState>();
-                let connected=state.client.lock().await.is_some();
+            busy_skips = 0;
+            let connected = {
+                let state = app.state::<crate::TelegramState>();
+                let connected = state.client.lock().await.is_some();
                 connected
             };
-            if connected{
-                let destinations={let db=app.state::<DbConnection>();known_remote_destinations(db.inner())};
-                if !destinations.is_empty(){
+            if connected {
+                let destinations = {
+                    let db = app.state::<DbConnection>();
+                    known_remote_destinations(db.inner())
+                };
+                if !destinations.is_empty() {
                     // At most two due destinations per idle pass; very large accounts
                     // scan one at a time. A successful UI folder refresh writes the same
                     // timestamp, so this worker does not immediately request it again.
-                    let pass_limit=if destinations.len()>24{1usize}else{2usize};
-                    let mut scanned=0usize;
-                    let mut inspected=0usize;
-                    while scanned<pass_limit && inspected<destinations.len(){
-                        if {let db=app.state::<DbConnection>();has_foreground_sync_work(db.inner()) || has_recent_foreground_activity(db.inner(),10)}{break;}
-                        let folder_id=destinations[cursor%destinations.len()];
-                        cursor=cursor.wrapping_add(1);
-                        inspected+=1;
-                        let due={let db=app.state::<DbConnection>();remote_scan_due(db.inner(),folder_id,15)};
-                        if !due{continue;}
-                        let result=crate::commands::fs::cmd_get_files(
-                            folder_id,Some(false),Some(true),app.clone(),app.state::<crate::TelegramState>(),app.state::<DbConnection>(),app.state::<crate::crypto::state::CryptoState>()
-                        ).await;
-                        match result{
-                            Ok(files)=>{
-                                let inputs=files.into_iter().map(|file|ProIndexFileInput{
-                                    message_id:file.id,name:file.name,size:i64::try_from(file.size).unwrap_or(i64::MAX),mime_type:file.mime_type,created_at:None,
-                                }).collect();
-                                let db=app.state::<DbConnection>();
-                                if let Err(error)=tcloud_pro_index_upsert_files(app.clone(),db,folder_id,inputs).await{
-                                    log::warn!("TCloud remote reconcile failed for {:?}: {}",folder_id,error);
+                    let pass_limit = if destinations.len() > 24 {
+                        1usize
+                    } else {
+                        2usize
+                    };
+                    let mut scanned = 0usize;
+                    let mut inspected = 0usize;
+                    while scanned < pass_limit && inspected < destinations.len() {
+                        // A forced pass is metadata-only and bounded. It lets indexed
+                        // files/placeholders appear progressively in Explorer while
+                        // long uploads or relocations continue in parallel.
+                        if !force_metadata_pass && {
+                            let db = app.state::<DbConnection>();
+                            has_foreground_sync_work(db.inner())
+                                || has_recent_foreground_activity(db.inner(), 10)
+                        } {
+                            break;
+                        }
+                        let folder_id = destinations[cursor % destinations.len()];
+                        cursor = cursor.wrapping_add(1);
+                        inspected += 1;
+                        let due = {
+                            let db = app.state::<DbConnection>();
+                            remote_scan_due(db.inner(), folder_id, 15)
+                        };
+                        if !due {
+                            continue;
+                        }
+                        let result = crate::commands::fs::cmd_get_files(
+                            folder_id,
+                            Some(false),
+                            Some(true),
+                            app.clone(),
+                            app.state::<crate::TelegramState>(),
+                            app.state::<DbConnection>(),
+                            app.state::<crate::crypto::state::CryptoState>(),
+                        )
+                        .await;
+                        match result {
+                            Ok(files) => {
+                                let inputs = files
+                                    .into_iter()
+                                    .map(|file| ProIndexFileInput {
+                                        message_id: file.id,
+                                        name: file.name,
+                                        size: i64::try_from(file.size).unwrap_or(i64::MAX),
+                                        mime_type: file.mime_type,
+                                        created_at: None,
+                                    })
+                                    .collect();
+                                let db = app.state::<DbConnection>();
+                                if let Err(error) = tcloud_pro_index_upsert_files(
+                                    app.clone(),
+                                    db,
+                                    folder_id,
+                                    inputs,
+                                )
+                                .await
+                                {
+                                    log::warn!(
+                                        "TCloud remote reconcile failed for {:?}: {}",
+                                        folder_id,
+                                        error
+                                    );
                                 }
                             }
-                            Err(error)=>log::debug!("TCloud remote scan skipped for {:?}: {}",folder_id,error),
+                            Err(error) => log::debug!(
+                                "TCloud remote scan skipped for {:?}: {}",
+                                folder_id,
+                                error
+                            ),
                         }
-                        scanned+=1;
+                        scanned += 1;
                     }
                 }
             }
@@ -551,7 +796,9 @@ fn tcloud_pro_index_list_files_inner(
     folder_id: Option<i64>,
 ) -> Result<Vec<ProIndexFileRow>, String> {
     let chat_key = folder_id.unwrap_or(0);
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     let mut stmt = conn.prepare(
         "SELECT telegram_message_id,name,size,created_at,sync_status,local_status,
@@ -567,10 +814,14 @@ fn tcloud_pro_index_list_files_inner(
             message_id: stmt.read(0).map_err(|e| e.to_string())?,
             name: stmt.read(1).map_err(|e| e.to_string())?,
             size: stmt.read(2).map_err(|e| e.to_string())?,
-            created_at: stmt.read::<i64,_>(3).ok().map(|value| value.to_string()),
-            sync_status: stmt.read::<String,_>(4).unwrap_or_else(|_| "synced".into()),
-            local_status: stmt.read::<String,_>(5).unwrap_or_else(|_| "online".into()),
-            is_pinned: stmt.read::<i64,_>(6).unwrap_or(0) != 0,
+            created_at: stmt.read::<i64, _>(3).ok().map(|value| value.to_string()),
+            sync_status: stmt
+                .read::<String, _>(4)
+                .unwrap_or_else(|_| "synced".into()),
+            local_status: stmt
+                .read::<String, _>(5)
+                .unwrap_or_else(|_| "online".into()),
+            is_pinned: stmt.read::<i64, _>(6).unwrap_or(0) != 0,
         });
     }
     Ok(out)
@@ -587,17 +838,22 @@ pub async fn tcloud_pro_index_list_files(
         let result = tcloud_pro_index_list_files_inner(&db, folder_id);
         let elapsed = started.elapsed();
         if elapsed >= std::time::Duration::from_secs(1) {
-            log::warn!("TCloud: leitura do índice local levou {:?}; executada em worker de fundo.", elapsed);
+            log::warn!(
+                "TCloud: leitura do índice local levou {:?}; executada em worker de fundo.",
+                elapsed
+            );
         }
         result
     })
-        .await
-        .map_err(|e| format!("index read worker failed: {e}"))?
+    .await
+    .map_err(|e| format!("index read worker failed: {e}"))?
 }
 
 #[tauri::command]
 pub fn tcloud_pro_index_stats(db: State<'_, DbConnection>) -> Result<ProIndexStats, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     Ok(ProIndexStats {
         files: scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_files"),
@@ -615,35 +871,78 @@ pub fn tcloud_pro_index_stats(db: State<'_, DbConnection>) -> Result<ProIndexSta
 #[tauri::command]
 pub fn tcloud_pro_mark_index_rebuilt(db: State<'_, DbConnection>) -> Result<i64, String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
-    let mut stmt = conn.prepare("INSERT OR REPLACE INTO tcloud_index_meta(key,value) VALUES('last_rebuild',?1)").map_err(|e| e.to_string())?;
-    stmt.bind((1, now.to_string().as_str())).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("INSERT OR REPLACE INTO tcloud_index_meta(key,value) VALUES('last_rebuild',?1)")
+        .map_err(|e| e.to_string())?;
+    stmt.bind((1, now.to_string().as_str()))
+        .map_err(|e| e.to_string())?;
     stmt.next().map_err(|e| e.to_string())?;
     Ok(now)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_trash_add(db: State<'_, DbConnection>, message_id: i64, folder_id: Option<i64>, name: String, size: i64) -> Result<i64, String> {
-    let file_id={
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
+pub fn tcloud_pro_trash_add(
+    db: State<'_, DbConnection>,
+    message_id: i64,
+    folder_id: Option<i64>,
+    name: String,
+    size: i64,
+) -> Result<i64, String> {
+    let file_id = {
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        ensure_schema(&conn)?;
         let mut q=conn.prepare("SELECT id FROM tcloud_files WHERE telegram_message_id=?1 AND COALESCE(telegram_chat_id,0)=?2 AND sync_status NOT IN ('deleted','trashed') ORDER BY id DESC LIMIT 1").map_err(|e|e.to_string())?;
-        q.bind((1,message_id)).map_err(|e|e.to_string())?;q.bind((2,folder_id.unwrap_or(0))).map_err(|e|e.to_string())?;
-        if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){Some(q.read::<i64,_>(0).unwrap_or(0))}else{None}
+        q.bind((1, message_id)).map_err(|e| e.to_string())?;
+        q.bind((2, folder_id.unwrap_or(0)))
+            .map_err(|e| e.to_string())?;
+        if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            Some(q.read::<i64, _>(0).unwrap_or(0))
+        } else {
+            None
+        }
     };
-    if let Some(fid)=file_id{
-        crate::commands::tcloud_sync_maturity::move_file_to_trash(db.inner(),fid)?;
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;let mut q=conn.prepare("SELECT id FROM tcloud_trash WHERE file_id=?1 ORDER BY deleted_at DESC LIMIT 1").map_err(|e|e.to_string())?;q.bind((1,fid)).map_err(|e|e.to_string())?;if matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Ok(q.read::<i64,_>(0).unwrap_or(0));}
+    if let Some(fid) = file_id {
+        crate::commands::tcloud_sync_maturity::move_file_to_trash(db.inner(), fid)?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut q = conn
+            .prepare(
+                "SELECT id FROM tcloud_trash WHERE file_id=?1 ORDER BY deleted_at DESC LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
+        q.bind((1, fid)).map_err(|e| e.to_string())?;
+        if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            return Ok(q.read::<i64, _>(0).unwrap_or(0));
+        }
     }
     // Compatibility fallback for messages that have not yet been indexed locally.
-    let now=chrono::Utc::now().timestamp();let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
+    let now = chrono::Utc::now().timestamp();
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
     let mut stmt=conn.prepare("INSERT OR REPLACE INTO tcloud_trash(message_id,folder_id,name,size,deleted_at) VALUES(?1,?2,?3,?4,?5)").map_err(|e|e.to_string())?;
-    stmt.bind((1,message_id)).map_err(|e|e.to_string())?;stmt.bind((2,folder_id)).map_err(|e|e.to_string())?;stmt.bind((3,name.as_str())).map_err(|e|e.to_string())?;stmt.bind((4,size)).map_err(|e|e.to_string())?;stmt.bind((5,now)).map_err(|e|e.to_string())?;stmt.next().map_err(|e|e.to_string())?;Ok(crate::db::last_insert_rowid(&conn)?)
+    stmt.bind((1, message_id)).map_err(|e| e.to_string())?;
+    stmt.bind((2, folder_id)).map_err(|e| e.to_string())?;
+    stmt.bind((3, name.as_str())).map_err(|e| e.to_string())?;
+    stmt.bind((4, size)).map_err(|e| e.to_string())?;
+    stmt.bind((5, now)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
+    Ok(crate::db::last_insert_rowid(&conn)?)
 }
 
 #[tauri::command]
 pub fn tcloud_pro_trash_list(db: State<'_, DbConnection>) -> Result<Vec<ProTrashItem>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     let mut stmt = conn.prepare("SELECT id,message_id,folder_id,name,size,deleted_at,relative_path,expires_at FROM tcloud_trash ORDER BY deleted_at DESC").map_err(|e| e.to_string())?;
     let mut out = Vec::new();
@@ -651,80 +950,119 @@ pub fn tcloud_pro_trash_list(db: State<'_, DbConnection>) -> Result<Vec<ProTrash
         out.push(ProTrashItem {
             id: stmt.read(0).map_err(|e| e.to_string())?,
             message_id: stmt.read(1).map_err(|e| e.to_string())?,
-            folder_id: stmt.read::<Option<i64>,_>(2).unwrap_or(None),
+            folder_id: stmt.read::<Option<i64>, _>(2).unwrap_or(None),
             name: stmt.read(3).map_err(|e| e.to_string())?,
             size: stmt.read(4).map_err(|e| e.to_string())?,
             deleted_at: stmt.read(5).map_err(|e| e.to_string())?,
-            relative_path: stmt.read::<Option<String>,_>(6).unwrap_or(None),
-            expires_at: stmt.read::<Option<i64>,_>(7).unwrap_or(None),
+            relative_path: stmt.read::<Option<String>, _>(6).unwrap_or(None),
+            expires_at: stmt.read::<Option<i64>, _>(7).unwrap_or(None),
         });
     }
     Ok(out)
 }
 
-fn restore_trash_item(app:&AppHandle,db:&DbConnection,trash_id:i64)->Result<bool,String>{
-    let (file_id,original_relative)={
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
+fn restore_trash_item(app: &AppHandle, db: &DbConnection, trash_id: i64) -> Result<bool, String> {
+    let (file_id, original_relative) = {
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        ensure_schema(&conn)?;
         let mut q=conn.prepare("SELECT file_id,message_id,COALESCE(folder_id,0),relative_path FROM tcloud_trash WHERE id=?1 LIMIT 1").map_err(|e|e.to_string())?;
-        q.bind((1,trash_id)).map_err(|e|e.to_string())?;
-        if !matches!(q.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Err("Item da Lixeira não encontrado.".into());}
-        let stored=q.read::<Option<i64>,_>(0).unwrap_or(None);
-        let mid=q.read::<i64,_>(1).unwrap_or(0);
-        let folder=q.read::<i64,_>(2).unwrap_or(0);
-        let relative=q.read::<Option<String>,_>(3).unwrap_or(None);
+        q.bind((1, trash_id)).map_err(|e| e.to_string())?;
+        if !matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+            return Err("Item da Lixeira não encontrado.".into());
+        }
+        let stored = q.read::<Option<i64>, _>(0).unwrap_or(None);
+        let mid = q.read::<i64, _>(1).unwrap_or(0);
+        let folder = q.read::<i64, _>(2).unwrap_or(0);
+        let relative = q.read::<Option<String>, _>(3).unwrap_or(None);
         drop(q);
-        let fid=if let Some(fid)=stored{
+        let fid = if let Some(fid) = stored {
             fid
-        }else{
+        } else {
             let mut f=conn.prepare("SELECT id FROM tcloud_files WHERE telegram_message_id=?1 AND COALESCE(telegram_chat_id,0)=?2 ORDER BY id DESC LIMIT 1").map_err(|e|e.to_string())?;
-            f.bind((1,mid)).map_err(|e|e.to_string())?;
-            f.bind((2,folder)).map_err(|e|e.to_string())?;
-            if !matches!(f.next().map_err(|e|e.to_string())?,sqlite::State::Row){return Err("Arquivo remoto da Lixeira não está mais no índice.".into());}
-            f.read::<i64,_>(0).unwrap_or(0)
+            f.bind((1, mid)).map_err(|e| e.to_string())?;
+            f.bind((2, folder)).map_err(|e| e.to_string())?;
+            if !matches!(f.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+                return Err("Arquivo remoto da Lixeira não está mais no índice.".into());
+            }
+            f.read::<i64, _>(0).unwrap_or(0)
         };
-        (fid,relative)
+        (fid, relative)
     };
 
     // Remember the old Explorer path before re-projecting the remote placeholder.
     // If another file occupied the same name while this item was in Trash, the
     // CFAPI layer reserves an alternate path so the newer file is never touched.
-    match crate::commands::tcloud_cfapi::prepare_restore_location(db,file_id,original_relative.as_deref()){
-        Ok(Some(path))=>log::info!("TCloud Lixeira: restauração de {} preparada em {}.",file_id,path),
-        Ok(None)=>{},
-        Err(error)=>log::warn!("TCloud Lixeira: local original não pôde ser preparado, usando destino padrão: {}",error),
+    match crate::commands::tcloud_cfapi::prepare_restore_location(
+        db,
+        file_id,
+        original_relative.as_deref(),
+    ) {
+        Ok(Some(path)) => log::info!(
+            "TCloud Lixeira: restauração de {} preparada em {}.",
+            file_id,
+            path
+        ),
+        Ok(None) => {}
+        Err(error) => log::warn!(
+            "TCloud Lixeira: local original não pôde ser preparado, usando destino padrão: {}",
+            error
+        ),
     }
 
     {
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-        let now=chrono::Utc::now().timestamp();
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        let now = chrono::Utc::now().timestamp();
         let mut up=conn.prepare("UPDATE tcloud_files SET sync_status='synced',local_status='cloud_only',updated_at=?1 WHERE id=?2").map_err(|e|e.to_string())?;
-        up.bind((1,now)).map_err(|e|e.to_string())?;
-        up.bind((2,file_id)).map_err(|e|e.to_string())?;
-        up.next().map_err(|e|e.to_string())?;
-        let mut d=conn.prepare("DELETE FROM tcloud_trash WHERE id=?1").map_err(|e|e.to_string())?;
-        d.bind((1,trash_id)).map_err(|e|e.to_string())?;
-        d.next().map_err(|e|e.to_string())?;
+        up.bind((1, now)).map_err(|e| e.to_string())?;
+        up.bind((2, file_id)).map_err(|e| e.to_string())?;
+        up.next().map_err(|e| e.to_string())?;
+        let mut d = conn
+            .prepare("DELETE FROM tcloud_trash WHERE id=?1")
+            .map_err(|e| e.to_string())?;
+        d.bind((1, trash_id)).map_err(|e| e.to_string())?;
+        d.next().map_err(|e| e.to_string())?;
     }
-    let _=crate::commands::tcloud_cfapi::reconcile_remote_index(app,db);
-    log::info!("TCloud Lixeira: arquivo {} restaurado ao Explorer.",file_id);
+    let _ = crate::commands::tcloud_cfapi::reconcile_remote_index(app, db);
+    log::info!(
+        "TCloud Lixeira: arquivo {} restaurado ao Explorer.",
+        file_id
+    );
     Ok(true)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_trash_restore(app: AppHandle, db: State<'_, DbConnection>, trash_id: i64) -> Result<bool, String> {
-    restore_trash_item(&app,db.inner(),trash_id)
+pub fn tcloud_pro_trash_restore(
+    app: AppHandle,
+    db: State<'_, DbConnection>,
+    trash_id: i64,
+) -> Result<bool, String> {
+    restore_trash_item(&app, db.inner(), trash_id)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_trash_restore_many(app:AppHandle,db:State<'_,DbConnection>,trash_ids:Vec<i64>)->Result<ProTrashBatchResult,String>{
-    let mut result=ProTrashBatchResult{restored:0,failed:0,errors:Vec::new()};
-    for id in trash_ids.into_iter().take(500){
-        match restore_trash_item(&app,db.inner(),id){
-            Ok(true)=>result.restored+=1,
-            Ok(false)=>result.failed+=1,
-            Err(error)=>{
-                result.failed+=1;
-                if result.errors.len()<20{result.errors.push(error);}
+pub fn tcloud_pro_trash_restore_many(
+    app: AppHandle,
+    db: State<'_, DbConnection>,
+    trash_ids: Vec<i64>,
+) -> Result<ProTrashBatchResult, String> {
+    let mut result = ProTrashBatchResult {
+        restored: 0,
+        failed: 0,
+        errors: Vec::new(),
+    };
+    for id in trash_ids.into_iter().take(500) {
+        match restore_trash_item(&app, db.inner(), id) {
+            Ok(true) => result.restored += 1,
+            Ok(false) => result.failed += 1,
+            Err(error) => {
+                result.failed += 1;
+                if result.errors.len() < 20 {
+                    result.errors.push(error);
+                }
             }
         }
     }
@@ -733,16 +1071,28 @@ pub fn tcloud_pro_trash_restore_many(app:AppHandle,db:State<'_,DbConnection>,tra
 
 #[tauri::command]
 pub fn tcloud_pro_trash_clear(db: State<'_, DbConnection>) -> Result<bool, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
-    conn.execute("DELETE FROM tcloud_trash").map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM tcloud_trash")
+        .map_err(|e| e.to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_version_add(db: State<'_, DbConnection>, message_id: i64, folder_id: Option<i64>, name: String, size: i64, note: Option<String>) -> Result<i64, String> {
+pub fn tcloud_pro_version_add(
+    db: State<'_, DbConnection>,
+    message_id: i64,
+    folder_id: Option<i64>,
+    name: String,
+    size: i64,
+    note: Option<String>,
+) -> Result<i64, String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     let mut stmt = conn.prepare("INSERT INTO tcloud_versions(message_id,folder_id,name,size,note,created_at) VALUES(?1,?2,?3,?4,?5,?6)").map_err(|e| e.to_string())?;
     stmt.bind((1, message_id)).map_err(|e| e.to_string())?;
@@ -756,8 +1106,13 @@ pub fn tcloud_pro_version_add(db: State<'_, DbConnection>, message_id: i64, fold
 }
 
 #[tauri::command]
-pub fn tcloud_pro_version_list(db: State<'_, DbConnection>, name: Option<String>) -> Result<Vec<ProVersionItem>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_pro_version_list(
+    db: State<'_, DbConnection>,
+    name: Option<String>,
+) -> Result<Vec<ProVersionItem>, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     let sql = if name.is_some() {
         "SELECT id,message_id,folder_id,name,size,note,created_at FROM tcloud_versions WHERE name=?1 ORDER BY created_at DESC"
@@ -765,7 +1120,9 @@ pub fn tcloud_pro_version_list(db: State<'_, DbConnection>, name: Option<String>
         "SELECT id,message_id,folder_id,name,size,note,created_at FROM tcloud_versions ORDER BY created_at DESC LIMIT 200"
     };
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    if let Some(ref value) = name { stmt.bind((1, value.as_str())).map_err(|e| e.to_string())?; }
+    if let Some(ref value) = name {
+        stmt.bind((1, value.as_str())).map_err(|e| e.to_string())?;
+    }
     let mut out = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
         out.push(ProVersionItem {
@@ -783,20 +1140,22 @@ pub fn tcloud_pro_version_list(db: State<'_, DbConnection>, name: Option<String>
 
 #[tauri::command]
 pub fn tcloud_pro_rules_list(db: State<'_, DbConnection>) -> Result<Vec<ProRule>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     let mut stmt = conn.prepare("SELECT id,name,extensions,target_folder_id,enabled,name_contains,min_size,max_size FROM tcloud_auto_rules ORDER BY id").map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
         out.push(ProRule {
-            id: stmt.read(0).map_err(|e|e.to_string())?,
-            name: stmt.read(1).map_err(|e|e.to_string())?,
-            extensions: stmt.read(2).map_err(|e|e.to_string())?,
-            target_folder_id: stmt.read::<Option<i64>,_>(3).unwrap_or(None),
-            enabled: stmt.read::<i64,_>(4).unwrap_or(1) != 0,
-            name_contains: stmt.read::<Option<String>,_>(5).unwrap_or(None),
-            min_size: stmt.read::<Option<i64>,_>(6).unwrap_or(None),
-            max_size: stmt.read::<Option<i64>,_>(7).unwrap_or(None),
+            id: stmt.read(0).map_err(|e| e.to_string())?,
+            name: stmt.read(1).map_err(|e| e.to_string())?,
+            extensions: stmt.read(2).map_err(|e| e.to_string())?,
+            target_folder_id: stmt.read::<Option<i64>, _>(3).unwrap_or(None),
+            enabled: stmt.read::<i64, _>(4).unwrap_or(1) != 0,
+            name_contains: stmt.read::<Option<String>, _>(5).unwrap_or(None),
+            min_size: stmt.read::<Option<i64>, _>(6).unwrap_or(None),
+            max_size: stmt.read::<Option<i64>, _>(7).unwrap_or(None),
         });
     }
     Ok(out)
@@ -814,37 +1173,57 @@ pub fn tcloud_pro_rule_save(
     min_size: Option<i64>,
     max_size: Option<i64>,
 ) -> Result<i64, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_schema(&conn)?;
     if let Some(id) = id {
         let mut stmt = conn.prepare("UPDATE tcloud_auto_rules SET name=?1,extensions=?2,target_folder_id=?3,enabled=?4,name_contains=?5,min_size=?6,max_size=?7 WHERE id=?8").map_err(|e|e.to_string())?;
-        stmt.bind((1,name.as_str())).map_err(|e|e.to_string())?;
-        stmt.bind((2,extensions.as_str())).map_err(|e|e.to_string())?;
-        stmt.bind((3,target_folder_id)).map_err(|e|e.to_string())?;
-        stmt.bind((4, if enabled {1_i64}else{0_i64})).map_err(|e|e.to_string())?;
-        stmt.bind((5,name_contains.as_deref())).map_err(|e|e.to_string())?;
-        stmt.bind((6,min_size)).map_err(|e|e.to_string())?;
-        stmt.bind((7,max_size)).map_err(|e|e.to_string())?;
-        stmt.bind((8,id)).map_err(|e|e.to_string())?;
-        stmt.next().map_err(|e|e.to_string())?;
+        stmt.bind((1, name.as_str())).map_err(|e| e.to_string())?;
+        stmt.bind((2, extensions.as_str()))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((3, target_folder_id))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((4, if enabled { 1_i64 } else { 0_i64 }))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((5, name_contains.as_deref()))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((6, min_size)).map_err(|e| e.to_string())?;
+        stmt.bind((7, max_size)).map_err(|e| e.to_string())?;
+        stmt.bind((8, id)).map_err(|e| e.to_string())?;
+        stmt.next().map_err(|e| e.to_string())?;
         Ok(id)
     } else {
         let mut stmt = conn.prepare("INSERT INTO tcloud_auto_rules(name,extensions,target_folder_id,enabled,name_contains,min_size,max_size) VALUES(?1,?2,?3,?4,?5,?6,?7)").map_err(|e|e.to_string())?;
-        stmt.bind((1,name.as_str())).map_err(|e|e.to_string())?;
-        stmt.bind((2,extensions.as_str())).map_err(|e|e.to_string())?;
-        stmt.bind((3,target_folder_id)).map_err(|e|e.to_string())?;
-        stmt.bind((4, if enabled {1_i64}else{0_i64})).map_err(|e|e.to_string())?;
-        stmt.bind((5,name_contains.as_deref())).map_err(|e|e.to_string())?;
-        stmt.bind((6,min_size)).map_err(|e|e.to_string())?;
-        stmt.bind((7,max_size)).map_err(|e|e.to_string())?;
-        stmt.next().map_err(|e|e.to_string())?;
+        stmt.bind((1, name.as_str())).map_err(|e| e.to_string())?;
+        stmt.bind((2, extensions.as_str()))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((3, target_folder_id))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((4, if enabled { 1_i64 } else { 0_i64 }))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((5, name_contains.as_deref()))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((6, min_size)).map_err(|e| e.to_string())?;
+        stmt.bind((7, max_size)).map_err(|e| e.to_string())?;
+        stmt.next().map_err(|e| e.to_string())?;
         Ok(crate::db::last_insert_rowid(&conn)?)
     }
 }
 
 #[tauri::command]
-pub fn tcloud_pro_rule_delete(db: State<'_, DbConnection>, id: i64) -> Result<bool,String>{let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;let mut stmt=conn.prepare("DELETE FROM tcloud_auto_rules WHERE id=?1").map_err(|e|e.to_string())?;stmt.bind((1,id)).map_err(|e|e.to_string())?;stmt.next().map_err(|e|e.to_string())?;Ok(true)}
-
+pub fn tcloud_pro_rule_delete(db: State<'_, DbConnection>, id: i64) -> Result<bool, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
+    let mut stmt = conn
+        .prepare("DELETE FROM tcloud_auto_rules WHERE id=?1")
+        .map_err(|e| e.to_string())?;
+    stmt.bind((1, id)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
+    Ok(true)
+}
 
 fn backup_file_metadata(path: &Path) -> Option<(i64, i64)> {
     let meta = std::fs::metadata(path).ok()?;
@@ -878,6 +1257,25 @@ fn collect_backup_files(path: &Path, output: &mut Vec<String>, limit: usize) {
         }
 
         let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+
+        if crate::sync::watcher::should_ignore(&path) {
+            continue;
+        }
+
+        // Temporary/system files change frequently and are not useful in a personal
+        // cloud backup. Ignoring them also prevents retry storms while applications
+        // are still writing lock files.
+        if name.starts_with('.')
+            || name.starts_with("~$")
+            || name.eq_ignore_ascii_case("desktop.ini")
+            || name.eq_ignore_ascii_case("thumbs.db")
+            || name.eq_ignore_ascii_case("node_modules")
+            || name.eq_ignore_ascii_case("$RECYCLE.BIN")
+        {
+            continue;
+        }
 
         if path.is_dir() {
             collect_backup_files(&path, output, limit);
@@ -996,8 +1394,12 @@ fn enqueue_backup_file(
 
             update.bind((1, name.as_str())).map_err(|e| e.to_string())?;
             update.bind((2, size)).map_err(|e| e.to_string())?;
-            update.bind((3, target_folder_id)).map_err(|e| e.to_string())?;
-            update.bind((4, fingerprint.as_str())).map_err(|e| e.to_string())?;
+            update
+                .bind((3, target_folder_id))
+                .map_err(|e| e.to_string())?;
+            update
+                .bind((4, fingerprint.as_str()))
+                .map_err(|e| e.to_string())?;
             update.bind((5, now)).map_err(|e| e.to_string())?;
             update.bind((6, id)).map_err(|e| e.to_string())?;
             update.next().map_err(|e| e.to_string())?;
@@ -1038,8 +1440,12 @@ fn enqueue_backup_file(
             insert.bind((1, name.as_str())).map_err(|e| e.to_string())?;
             insert.bind((2, file_path)).map_err(|e| e.to_string())?;
             insert.bind((3, size)).map_err(|e| e.to_string())?;
-            insert.bind((4, target_folder_id)).map_err(|e| e.to_string())?;
-            insert.bind((5, fingerprint.as_str())).map_err(|e| e.to_string())?;
+            insert
+                .bind((4, target_folder_id))
+                .map_err(|e| e.to_string())?;
+            insert
+                .bind((5, fingerprint.as_str()))
+                .map_err(|e| e.to_string())?;
             insert.bind((6, now)).map_err(|e| e.to_string())?;
             insert.next().map_err(|e| e.to_string())?;
 
@@ -1066,8 +1472,7 @@ fn enqueue_backup_file(
             existing.next().map_err(|e| e.to_string())?,
             sqlite::State::Row
         ) {
-            let sync_job_id =
-                existing.read::<i64, _>(0).map_err(|e| e.to_string())?;
+            let sync_job_id = existing.read::<i64, _>(0).map_err(|e| e.to_string())?;
 
             drop(existing);
 
@@ -1110,14 +1515,16 @@ fn enqueue_backup_file(
                     updated_at,
                     priority,
                     attempts,
-                    next_attempt_at
+                    next_attempt_at,
+                    bytes_total
                  )
-                 VALUES(?1,'upload','pending',?2,?2,90,0,NULL)",
+                 VALUES(?1,'upload','pending',?2,?2,90,0,NULL,?3)",
             )
             .map_err(|e| e.to_string())?;
 
         job.bind((1, file_id)).map_err(|e| e.to_string())?;
         job.bind((2, now)).map_err(|e| e.to_string())?;
+        job.bind((3, size.max(0))).map_err(|e| e.to_string())?;
         job.next().map_err(|e| e.to_string())?;
 
         crate::db::last_insert_rowid(&conn)?
@@ -1180,10 +1587,7 @@ fn reconcile_backup_jobs(db: &DbConnection) -> Result<usize, String> {
             )
             .map_err(|e| e.to_string())?;
 
-        while matches!(
-            q.next().map_err(|e| e.to_string())?,
-            sqlite::State::Row
-        ) {
+        while matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
             completed.push((
                 q.read::<i64, _>(0).map_err(|e| e.to_string())?,
                 q.read::<String, _>(1).map_err(|e| e.to_string())?,
@@ -1214,7 +1618,9 @@ fn reconcile_backup_jobs(db: &DbConnection) -> Result<usize, String> {
             .map_err(|e| e.to_string())?;
 
         state.bind((1, *backup_id)).map_err(|e| e.to_string())?;
-        state.bind((2, file_path.as_str())).map_err(|e| e.to_string())?;
+        state
+            .bind((2, file_path.as_str()))
+            .map_err(|e| e.to_string())?;
         state.bind((3, *size)).map_err(|e| e.to_string())?;
         state.bind((4, *modified)).map_err(|e| e.to_string())?;
         state.bind((5, now)).map_err(|e| e.to_string())?;
@@ -1228,7 +1634,9 @@ fn reconcile_backup_jobs(db: &DbConnection) -> Result<usize, String> {
             .map_err(|e| e.to_string())?;
 
         clear.bind((1, *backup_id)).map_err(|e| e.to_string())?;
-        clear.bind((2, file_path.as_str())).map_err(|e| e.to_string())?;
+        clear
+            .bind((2, file_path.as_str()))
+            .map_err(|e| e.to_string())?;
         clear.next().map_err(|e| e.to_string())?;
     }
 
@@ -1246,10 +1654,7 @@ fn reconcile_backup_jobs(db: &DbConnection) -> Result<usize, String> {
 
             q.bind((1, backup_id)).map_err(|e| e.to_string())?;
 
-            if matches!(
-                q.next().map_err(|e| e.to_string())?,
-                sqlite::State::Row
-            ) {
+            if matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
                 q.read::<i64, _>(0).unwrap_or(0)
             } else {
                 0
@@ -1301,10 +1706,7 @@ fn run_backup_scheduler_tick(db: &DbConnection) -> Result<usize, String> {
 
         let mut rows = Vec::new();
 
-        while matches!(
-            q.next().map_err(|e| e.to_string())?,
-            sqlite::State::Row
-        ) {
+        while matches!(q.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
             rows.push((
                 q.read::<i64, _>(0).map_err(|e| e.to_string())?,
                 q.read::<String, _>(1).map_err(|e| e.to_string())?,
@@ -1343,12 +1745,7 @@ fn run_backup_scheduler_tick(db: &DbConnection) -> Result<usize, String> {
         collect_backup_files(root, &mut files, 10_000);
 
         for file_path in files {
-            match enqueue_backup_file(
-                db,
-                backup_id,
-                &file_path,
-                target_folder_id,
-            ) {
+            match enqueue_backup_file(db, backup_id, &file_path, target_folder_id) {
                 Ok(true) => queued += 1,
                 Ok(false) => {}
                 Err(error) => {
@@ -1390,10 +1787,8 @@ pub fn start_backup_scheduler(db: DbConnection) {
         loop {
             let scheduler_db = db.clone();
 
-            match tokio::task::spawn_blocking(move || {
-                run_backup_scheduler_tick(&scheduler_db)
-            })
-            .await
+            match tokio::task::spawn_blocking(move || run_backup_scheduler_tick(&scheduler_db))
+                .await
             {
                 Ok(Ok(queued)) if queued > 0 => {
                     log::info!(
@@ -1406,53 +1801,255 @@ pub fn start_backup_scheduler(db: DbConnection) {
                     log::warn!("TCloud backup scheduler: {}", error);
                 }
                 Err(error) => {
-                    log::warn!(
-                        "TCloud backup scheduler worker interrompido: {}",
-                        error
-                    );
+                    log::warn!("TCloud backup scheduler worker interrompido: {}", error);
                 }
             }
 
-            tokio::time::sleep(
-                std::time::Duration::from_secs(60)
-            )
-            .await;
+            // A newly enabled PC folder should become visible quickly. Each tick
+            // only scans sources whose persisted interval is due, so this short
+            // wake-up does not repeatedly walk the user's folders.
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
     });
 }
 
-#[tauri::command]
-pub fn tcloud_pro_backups_list(db: State<'_, DbConnection>) -> Result<Vec<ProBackupSource>, String> {
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
-    let mut stmt=conn.prepare("SELECT id,local_path,target_folder_id,enabled,interval_minutes,last_run_at,last_scan_at,last_success_at FROM tcloud_backup_sources ORDER BY id").map_err(|e|e.to_string())?;let mut out=Vec::new();
-    while let sqlite::State::Row=stmt.next().map_err(|e|e.to_string())?{out.push(ProBackupSource{id:stmt.read(0).map_err(|e|e.to_string())?,local_path:stmt.read(1).map_err(|e|e.to_string())?,target_folder_id:stmt.read(2).ok(),enabled:stmt.read::<i64,_>(3).unwrap_or(1)!=0,interval_minutes:stmt.read(4).unwrap_or(1440),last_run_at:stmt.read(5).ok(),last_scan_at:stmt.read(6).ok(),last_success_at:stmt.read(7).ok()});}Ok(out)
+/// Observa cada origem de backup diretamente pelo sistema de arquivos. A
+/// varredura agendada continua existindo como reconciliacao, mas arquivos novos
+/// e alterados nao precisam mais esperar o intervalo configurado.
+pub fn start_backup_realtime_watchers(db: DbConnection) {
+    std::thread::Builder::new()
+        .name("tcloud-backup-watchers".to_string())
+        .spawn(move || {
+            let (tx, rx) = mpsc::channel::<(i64, String, Option<i64>)>();
+            let mut watchers = Vec::<RecommendedWatcher>::new();
+            let mut signature = Vec::<(i64, String, Option<i64>)>::new();
+            let mut pending = HashMap::<(i64, String), (Option<i64>, std::time::Instant)>::new();
+            let mut last_reload = std::time::Instant::now() - std::time::Duration::from_secs(30);
+
+            loop {
+                if last_reload.elapsed() >= std::time::Duration::from_secs(5) {
+                    let sources = (|| -> Result<Vec<(i64, String, Option<i64>)>, String> {
+                        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+                        ensure_schema(&conn)?;
+                        let mut query = conn.prepare(
+                            "SELECT id,local_path,target_folder_id FROM tcloud_backup_sources WHERE enabled=1 ORDER BY id"
+                        ).map_err(|error| error.to_string())?;
+                        let mut rows = Vec::new();
+                        while matches!(query.next().map_err(|error| error.to_string())?, sqlite::State::Row) {
+                            rows.push((
+                                query.read::<i64, _>(0).map_err(|error| error.to_string())?,
+                                query.read::<String, _>(1).map_err(|error| error.to_string())?,
+                                query.read::<Option<i64>, _>(2).unwrap_or(None),
+                            ));
+                        }
+                        Ok(rows)
+                    })().unwrap_or_default();
+
+                    if sources != signature {
+                        watchers.clear();
+                        for (backup_id, local_path, target_folder_id) in &sources {
+                            let root = std::path::PathBuf::from(local_path);
+                            if !root.is_dir() { continue; }
+                            let event_tx = tx.clone();
+                            let id = *backup_id;
+                            let target = *target_folder_id;
+                            match notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                                if let Ok(event) = result {
+                                    for path in event.paths {
+                                        if path.is_file() {
+                                            let _ = event_tx.send((id, path.to_string_lossy().to_string(), target));
+                                        }
+                                    }
+                                }
+                            }) {
+                                Ok(mut watcher) => {
+                                    if watcher.watch(&root, RecursiveMode::Recursive).is_ok() {
+                                        watchers.push(watcher);
+                                    }
+                                }
+                                Err(error) => log::warn!("TCloud backup em tempo real: {}", error),
+                            }
+                        }
+                        signature = sources;
+                    }
+                    last_reload = std::time::Instant::now();
+                }
+
+                match rx.recv_timeout(std::time::Duration::from_millis(250)) {
+                    Ok((backup_id, path, target)) => {
+                        pending.insert(
+                            (backup_id, path),
+                            (target, std::time::Instant::now() + std::time::Duration::from_millis(1500)),
+                        );
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+                while let Ok((backup_id, path, target)) = rx.try_recv() {
+                    pending.insert(
+                        (backup_id, path),
+                        (target, std::time::Instant::now() + std::time::Duration::from_millis(1500)),
+                    );
+                }
+
+                let now = std::time::Instant::now();
+                let ready = pending.iter()
+                    .filter_map(|(key, (_, due))| (*due <= now).then_some(key.clone()))
+                    .collect::<Vec<_>>();
+                for key in ready {
+                    let Some((target, _)) = pending.remove(&key) else { continue; };
+                    if Path::new(&key.1).is_file() {
+                        if let Err(error) = enqueue_backup_file(&db, key.0, &key.1, target) {
+                            log::warn!("TCloud backup em tempo real {}: {}", key.1, error);
+                        }
+                    }
+                }
+            }
+        })
+        .expect("failed to start TCloud backup realtime watchers");
 }
 
 #[tauri::command]
-pub fn tcloud_pro_backup_save(db: State<'_, DbConnection>, id: Option<i64>, local_path: String, target_folder_id: Option<i64>, enabled: bool, interval_minutes: i64) -> Result<i64,String>{
-    if !Path::new(&local_path).exists(){return Err("A pasta de backup não existe".to_string());}
-    let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
-    if let Some(id)=id{let mut stmt=conn.prepare("UPDATE tcloud_backup_sources SET local_path=?1,target_folder_id=?2,enabled=?3,interval_minutes=?4 WHERE id=?5").map_err(|e|e.to_string())?;stmt.bind((1,local_path.as_str())).map_err(|e|e.to_string())?;stmt.bind((2,target_folder_id)).map_err(|e|e.to_string())?;stmt.bind((3,if enabled{1_i64}else{0_i64})).map_err(|e|e.to_string())?;stmt.bind((4,interval_minutes.max(15))).map_err(|e|e.to_string())?;stmt.bind((5,id)).map_err(|e|e.to_string())?;stmt.next().map_err(|e|e.to_string())?;Ok(id)}else{let mut stmt=conn.prepare("INSERT INTO tcloud_backup_sources(local_path,target_folder_id,enabled,interval_minutes) VALUES(?1,?2,?3,?4)").map_err(|e|e.to_string())?;stmt.bind((1,local_path.as_str())).map_err(|e|e.to_string())?;stmt.bind((2,target_folder_id)).map_err(|e|e.to_string())?;stmt.bind((3,if enabled{1_i64}else{0_i64})).map_err(|e|e.to_string())?;stmt.bind((4,interval_minutes.max(15))).map_err(|e|e.to_string())?;stmt.next().map_err(|e|e.to_string())?;Ok(crate::db::last_insert_rowid(&conn)?)}
+pub fn tcloud_pro_backups_list(
+    db: State<'_, DbConnection>,
+) -> Result<Vec<ProBackupSource>, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
+    let mut stmt=conn.prepare("SELECT id,local_path,target_folder_id,enabled,interval_minutes,last_run_at,last_scan_at,last_success_at FROM tcloud_backup_sources ORDER BY id").map_err(|e|e.to_string())?;
+    let mut out = Vec::new();
+    while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
+        out.push(ProBackupSource {
+            id: stmt.read(0).map_err(|e| e.to_string())?,
+            local_path: stmt.read(1).map_err(|e| e.to_string())?,
+            target_folder_id: stmt.read(2).ok(),
+            enabled: stmt.read::<i64, _>(3).unwrap_or(1) != 0,
+            interval_minutes: stmt.read(4).unwrap_or(1440),
+            last_run_at: stmt.read(5).ok(),
+            last_scan_at: stmt.read(6).ok(),
+            last_success_at: stmt.read(7).ok(),
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_backup_delete(db:State<'_,DbConnection>,id:i64)->Result<bool,String>{let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;let mut stmt=conn.prepare("DELETE FROM tcloud_backup_sources WHERE id=?1").map_err(|e|e.to_string())?;stmt.bind((1,id)).map_err(|e|e.to_string())?;stmt.next().map_err(|e|e.to_string())?;Ok(true)}
-
-fn scan_dir(path: &Path, files: &mut usize, bytes: &mut u64) {
-    let Ok(read) = std::fs::read_dir(path) else { return; };
-    for entry in read.flatten() {
-        let p = entry.path();
-        if p.is_dir() { scan_dir(&p, files, bytes); }
-        else if let Ok(meta) = entry.metadata() { *files += 1; *bytes += meta.len(); }
+pub fn tcloud_pro_backup_save(
+    db: State<'_, DbConnection>,
+    id: Option<i64>,
+    local_path: String,
+    target_folder_id: Option<i64>,
+    enabled: bool,
+    interval_minutes: i64,
+) -> Result<i64, String> {
+    if !Path::new(&local_path).exists() {
+        return Err("A pasta de backup não existe".to_string());
+    }
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
+    if let Some(id) = id {
+        let mut stmt=conn.prepare("UPDATE tcloud_backup_sources SET local_path=?1,target_folder_id=?2,enabled=?3,interval_minutes=?4 WHERE id=?5").map_err(|e|e.to_string())?;
+        stmt.bind((1, local_path.as_str()))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((2, target_folder_id))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((3, if enabled { 1_i64 } else { 0_i64 }))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((4, interval_minutes.max(15)))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((5, id)).map_err(|e| e.to_string())?;
+        stmt.next().map_err(|e| e.to_string())?;
+        Ok(id)
+    } else {
+        let mut stmt=conn.prepare("INSERT INTO tcloud_backup_sources(local_path,target_folder_id,enabled,interval_minutes) VALUES(?1,?2,?3,?4)").map_err(|e|e.to_string())?;
+        stmt.bind((1, local_path.as_str()))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((2, target_folder_id))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((3, if enabled { 1_i64 } else { 0_i64 }))
+            .map_err(|e| e.to_string())?;
+        stmt.bind((4, interval_minutes.max(15)))
+            .map_err(|e| e.to_string())?;
+        stmt.next().map_err(|e| e.to_string())?;
+        Ok(crate::db::last_insert_rowid(&conn)?)
     }
 }
 
 #[tauri::command]
-pub fn tcloud_pro_backup_scan(db: State<'_, DbConnection>, id: i64) -> Result<ProBackupScanResult, String> {
-    let path = {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub async fn tcloud_pro_backup_run_now(
+    db: State<'_, DbConnection>,
+    id: Option<i64>,
+) -> Result<usize, String> {
+    let db = db.inner().clone();
+    {
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         ensure_schema(&conn)?;
-        let mut q = conn.prepare("SELECT local_path FROM tcloud_backup_sources WHERE id=?1").map_err(|e| e.to_string())?;
+        let sql = if id.is_some() {
+            "UPDATE tcloud_backup_sources SET last_scan_at=NULL WHERE id=?1 AND enabled=1"
+        } else {
+            "UPDATE tcloud_backup_sources SET last_scan_at=NULL WHERE enabled=1"
+        };
+        let mut statement = conn.prepare(sql).map_err(|error| error.to_string())?;
+        if let Some(id) = id {
+            statement.bind((1, id)).map_err(|error| error.to_string())?;
+        }
+        statement.next().map_err(|error| error.to_string())?;
+    }
+
+    let queued = tokio::task::spawn_blocking(move || run_backup_scheduler_tick(&db))
+        .await
+        .map_err(|error| format!("backup worker interrupted: {error}"))??;
+    crate::sync::scheduler::signal_sync_work();
+    Ok(queued)
+}
+
+#[tauri::command]
+pub fn tcloud_pro_backup_delete(db: State<'_, DbConnection>, id: i64) -> Result<bool, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
+    let mut stmt = conn
+        .prepare("DELETE FROM tcloud_backup_sources WHERE id=?1")
+        .map_err(|e| e.to_string())?;
+    stmt.bind((1, id)).map_err(|e| e.to_string())?;
+    stmt.next().map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn scan_dir(path: &Path, files: &mut usize, bytes: &mut u64) {
+    let Ok(read) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in read.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            scan_dir(&p, files, bytes);
+        } else if let Ok(meta) = entry.metadata() {
+            *files += 1;
+            *bytes += meta.len();
+        }
+    }
+}
+
+#[tauri::command]
+pub fn tcloud_pro_backup_scan(
+    db: State<'_, DbConnection>,
+    id: i64,
+) -> Result<ProBackupScanResult, String> {
+    let path = {
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        ensure_schema(&conn)?;
+        let mut q = conn
+            .prepare("SELECT local_path FROM tcloud_backup_sources WHERE id=?1")
+            .map_err(|e| e.to_string())?;
         q.bind((1, id)).map_err(|e| e.to_string())?;
         if q.next().map_err(|e| e.to_string())? != sqlite::State::Row {
             return Err("Backup não encontrado".to_string());
@@ -1462,24 +2059,59 @@ pub fn tcloud_pro_backup_scan(db: State<'_, DbConnection>, id: i64) -> Result<Pr
     let mut files = 0usize;
     let mut bytes = 0u64;
     scan_dir(Path::new(&path), &mut files, &mut bytes);
-    Ok(ProBackupScanResult { files_found: files, total_bytes: bytes })
+    Ok(ProBackupScanResult {
+        files_found: files,
+        total_bytes: bytes,
+    })
 }
 
 #[tauri::command]
-pub fn tcloud_pro_offline_pin(db:State<'_,DbConnection>,file_id:i64,pinned:bool)->Result<bool,String>{let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;if pinned{let mut s=conn.prepare("INSERT OR REPLACE INTO tcloud_offline_pins(file_id,pinned_at) VALUES(?1,?2)").map_err(|e|e.to_string())?;s.bind((1,file_id)).map_err(|e|e.to_string())?;s.bind((2,chrono::Utc::now().timestamp())).map_err(|e|e.to_string())?;s.next().map_err(|e|e.to_string())?;}else{let mut s=conn.prepare("DELETE FROM tcloud_offline_pins WHERE file_id=?1").map_err(|e|e.to_string())?;s.bind((1,file_id)).map_err(|e|e.to_string())?;s.next().map_err(|e|e.to_string())?;}Ok(pinned)}
-
+pub fn tcloud_pro_offline_pin(
+    db: State<'_, DbConnection>,
+    file_id: i64,
+    pinned: bool,
+) -> Result<bool, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
+    if pinned {
+        let mut s = conn
+            .prepare("INSERT OR REPLACE INTO tcloud_offline_pins(file_id,pinned_at) VALUES(?1,?2)")
+            .map_err(|e| e.to_string())?;
+        s.bind((1, file_id)).map_err(|e| e.to_string())?;
+        s.bind((2, chrono::Utc::now().timestamp()))
+            .map_err(|e| e.to_string())?;
+        s.next().map_err(|e| e.to_string())?;
+    } else {
+        let mut s = conn
+            .prepare("DELETE FROM tcloud_offline_pins WHERE file_id=?1")
+            .map_err(|e| e.to_string())?;
+        s.bind((1, file_id)).map_err(|e| e.to_string())?;
+        s.next().map_err(|e| e.to_string())?;
+    }
+    Ok(pinned)
+}
 
 fn collect_file_metadata(path: &Path, output: &mut Vec<(String, i64, i64)>, limit: usize) {
-    if output.len() >= limit { return; }
-    let Ok(read) = std::fs::read_dir(path) else { return; };
+    if output.len() >= limit {
+        return;
+    }
+    let Ok(read) = std::fs::read_dir(path) else {
+        return;
+    };
     for entry in read.flatten() {
-        if output.len() >= limit { break; }
+        if output.len() >= limit {
+            break;
+        }
         let p = entry.path();
         if p.is_dir() {
             collect_file_metadata(&p, output, limit);
         } else if p.is_file() {
             if let Ok(meta) = entry.metadata() {
-                let modified = meta.modified().ok()
+                let modified = meta
+                    .modified()
+                    .ok()
                     .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|duration| duration.as_secs() as i64)
                     .unwrap_or(0);
@@ -1490,11 +2122,18 @@ fn collect_file_metadata(path: &Path, output: &mut Vec<(String, i64, i64)>, limi
 }
 
 #[tauri::command]
-pub fn tcloud_pro_backup_files(db: State<'_, DbConnection>, id: i64) -> Result<Vec<String>, String> {
+pub fn tcloud_pro_backup_files(
+    db: State<'_, DbConnection>,
+    id: i64,
+) -> Result<Vec<String>, String> {
     let (path, previous) = {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         ensure_schema(&conn)?;
-        let mut q = conn.prepare("SELECT local_path FROM tcloud_backup_sources WHERE id=?1 AND enabled=1").map_err(|e| e.to_string())?;
+        let mut q = conn
+            .prepare("SELECT local_path FROM tcloud_backup_sources WHERE id=?1 AND enabled=1")
+            .map_err(|e| e.to_string())?;
         q.bind((1, id)).map_err(|e| e.to_string())?;
         if q.next().map_err(|e| e.to_string())? != sqlite::State::Row {
             return Err("Backup não encontrado ou desativado".to_string());
@@ -1524,20 +2163,48 @@ pub fn tcloud_pro_backup_files(db: State<'_, DbConnection>, id: i64) -> Result<V
 }
 
 #[tauri::command]
-pub fn tcloud_pro_backup_mark_file(db:State<'_,DbConnection>,id:i64,file_path:String)->Result<bool,String>{
-    let meta=std::fs::metadata(&file_path).map_err(|e|e.to_string())?;
-    let modified=meta.modified().ok().and_then(|time|time.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_secs() as i64).unwrap_or(0);
-    let now=chrono::Utc::now().timestamp();let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
+pub fn tcloud_pro_backup_mark_file(
+    db: State<'_, DbConnection>,
+    id: i64,
+    file_path: String,
+) -> Result<bool, String> {
+    let meta = std::fs::metadata(&file_path).map_err(|e| e.to_string())?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let now = chrono::Utc::now().timestamp();
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
     let mut s=conn.prepare("INSERT OR REPLACE INTO tcloud_backup_state(backup_id,file_path,file_size,modified_at,uploaded_at) VALUES(?1,?2,?3,?4,?5)").map_err(|e|e.to_string())?;
-    s.bind((1,id)).map_err(|e|e.to_string())?;s.bind((2,file_path.as_str())).map_err(|e|e.to_string())?;s.bind((3,meta.len() as i64)).map_err(|e|e.to_string())?;s.bind((4,modified)).map_err(|e|e.to_string())?;s.bind((5,now)).map_err(|e|e.to_string())?;s.next().map_err(|e|e.to_string())?;Ok(true)
+    s.bind((1, id)).map_err(|e| e.to_string())?;
+    s.bind((2, file_path.as_str())).map_err(|e| e.to_string())?;
+    s.bind((3, meta.len() as i64)).map_err(|e| e.to_string())?;
+    s.bind((4, modified)).map_err(|e| e.to_string())?;
+    s.bind((5, now)).map_err(|e| e.to_string())?;
+    s.next().map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_backup_mark_run(db:State<'_,DbConnection>,id:i64)->Result<i64,String>{
-    let now=chrono::Utc::now().timestamp();let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;ensure_schema(&conn)?;
-    let mut s=conn.prepare("UPDATE tcloud_backup_sources SET last_run_at=?1 WHERE id=?2").map_err(|e|e.to_string())?;s.bind((1,now)).map_err(|e|e.to_string())?;s.bind((2,id)).map_err(|e|e.to_string())?;s.next().map_err(|e|e.to_string())?;Ok(now)
+pub fn tcloud_pro_backup_mark_run(db: State<'_, DbConnection>, id: i64) -> Result<i64, String> {
+    let now = chrono::Utc::now().timestamp();
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    ensure_schema(&conn)?;
+    let mut s = conn
+        .prepare("UPDATE tcloud_backup_sources SET last_run_at=?1 WHERE id=?2")
+        .map_err(|e| e.to_string())?;
+    s.bind((1, now)).map_err(|e| e.to_string())?;
+    s.bind((2, id)).map_err(|e| e.to_string())?;
+    s.next().map_err(|e| e.to_string())?;
+    Ok(now)
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProDuplicateFile {
@@ -1628,46 +2295,60 @@ fn ensure_pro9_schema(conn: &sqlite::Connection) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn tcloud_pro_duplicates(db: State<'_, DbConnection>) -> Result<Vec<ProDuplicateGroup>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_pro_duplicates(
+    db: State<'_, DbConnection>,
+) -> Result<Vec<ProDuplicateGroup>, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro9_schema(&conn)?;
 
-    let active_filter = "sync_status NOT IN ('trashed','deleted','remote_deleted','pending_delete')";
-    let mut hashes = conn.prepare(&format!(
-        "SELECT sha256, MAX(size), COUNT(*), COALESCE(SUM(size)-MAX(size),0)
+    let active_filter =
+        "sync_status NOT IN ('trashed','deleted','remote_deleted','pending_delete')";
+    let mut hashes = conn
+        .prepare(&format!(
+            "SELECT sha256, MAX(size), COUNT(*), COALESCE(SUM(size)-MAX(size),0)
          FROM tcloud_files
          WHERE sha256 IS NOT NULL AND sha256 != '' AND {active_filter}
          GROUP BY sha256 HAVING COUNT(*) > 1
          ORDER BY COALESCE(SUM(size)-MAX(size),0) DESC LIMIT 100"
-    )).map_err(|e| e.to_string())?;
+        ))
+        .map_err(|e| e.to_string())?;
 
     let mut groups = Vec::new();
     while let sqlite::State::Row = hashes.next().map_err(|e| e.to_string())? {
-        let sha256 = hashes.read::<String,_>(0).map_err(|e| e.to_string())?;
-        let size = hashes.read::<i64,_>(1).unwrap_or(0);
-        let reclaimable_bytes = hashes.read::<i64,_>(3).unwrap_or(0);
+        let sha256 = hashes.read::<String, _>(0).map_err(|e| e.to_string())?;
+        let size = hashes.read::<i64, _>(1).unwrap_or(0);
+        let reclaimable_bytes = hashes.read::<i64, _>(3).unwrap_or(0);
         let mut files_stmt = conn.prepare(&format!(
             "SELECT id,telegram_message_id,telegram_chat_id,name,size,sha256,
                     COALESCE(path,''),COALESCE(local_status,''),COALESCE(sync_status,''),COALESCE(updated_at,0)
              FROM tcloud_files WHERE sha256=?1 AND {active_filter} ORDER BY updated_at DESC"
         )).map_err(|e| e.to_string())?;
-        files_stmt.bind((1, sha256.as_str())).map_err(|e| e.to_string())?;
+        files_stmt
+            .bind((1, sha256.as_str()))
+            .map_err(|e| e.to_string())?;
         let mut files = Vec::new();
         while let sqlite::State::Row = files_stmt.next().map_err(|e| e.to_string())? {
             files.push(ProDuplicateFile {
                 file_id: files_stmt.read(0).map_err(|e| e.to_string())?,
-                telegram_message_id: files_stmt.read::<Option<i64>,_>(1).unwrap_or(None),
-                telegram_chat_id: files_stmt.read::<Option<i64>,_>(2).unwrap_or(None),
+                telegram_message_id: files_stmt.read::<Option<i64>, _>(1).unwrap_or(None),
+                telegram_chat_id: files_stmt.read::<Option<i64>, _>(2).unwrap_or(None),
                 name: files_stmt.read(3).map_err(|e| e.to_string())?,
                 size: files_stmt.read(4).unwrap_or(0),
                 sha256: files_stmt.read(5).map_err(|e| e.to_string())?,
-                path: files_stmt.read::<String,_>(6).unwrap_or_default(),
-                local_status: files_stmt.read::<String,_>(7).unwrap_or_default(),
-                sync_status: files_stmt.read::<String,_>(8).unwrap_or_default(),
-                updated_at: files_stmt.read::<i64,_>(9).unwrap_or(0),
+                path: files_stmt.read::<String, _>(6).unwrap_or_default(),
+                local_status: files_stmt.read::<String, _>(7).unwrap_or_default(),
+                sync_status: files_stmt.read::<String, _>(8).unwrap_or_default(),
+                updated_at: files_stmt.read::<i64, _>(9).unwrap_or(0),
             });
         }
-        groups.push(ProDuplicateGroup { sha256, size, reclaimable_bytes, files });
+        groups.push(ProDuplicateGroup {
+            sha256,
+            size,
+            reclaimable_bytes,
+            files,
+        });
     }
     Ok(groups)
 }
@@ -1764,7 +2445,9 @@ pub fn tcloud_pro_duplicates_trash(
     }
 
     let selected = {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         ensure_pro9_schema(&conn)?;
         let mut rows = Vec::<(i64, String, String)>::new();
         for file_id in &ids {
@@ -1776,10 +2459,15 @@ pub fn tcloud_pro_duplicates_trash(
             ).map_err(|e| e.to_string())?;
             stmt.bind((1, *file_id)).map_err(|e| e.to_string())?;
             if !matches!(stmt.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
-                return Err(format!("A cópia {} não está mais disponível. Atualize a lista.", file_id));
+                return Err(format!(
+                    "A cópia {} não está mais disponível. Atualize a lista.",
+                    file_id
+                ));
             }
-            let sha256 = stmt.read::<String,_>(0).unwrap_or_default();
-            let name = stmt.read::<String,_>(1).unwrap_or_else(|_| format!("Arquivo {file_id}"));
+            let sha256 = stmt.read::<String, _>(0).unwrap_or_default();
+            let name = stmt
+                .read::<String, _>(1)
+                .unwrap_or_else(|_| format!("Arquivo {file_id}"));
             if sha256.is_empty() {
                 return Err(format!("{} ainda não possui SHA-256 confirmado.", name));
             }
@@ -1794,7 +2482,9 @@ pub fn tcloud_pro_duplicates_trash(
     }
 
     {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         for (sha256, selected_count) in &selected_per_hash {
             let mut stmt = conn.prepare(
                 "SELECT COUNT(*) FROM tcloud_files
@@ -1802,8 +2492,10 @@ pub fn tcloud_pro_duplicates_trash(
             ).map_err(|e| e.to_string())?;
             stmt.bind((1, sha256.as_str())).map_err(|e| e.to_string())?;
             let total = if matches!(stmt.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
-                stmt.read::<i64,_>(0).unwrap_or(0).max(0) as usize
-            } else { 0 };
+                stmt.read::<i64, _>(0).unwrap_or(0).max(0) as usize
+            } else {
+                0
+            };
             if total <= 1 || *selected_count >= total {
                 return Err("O TCloud sempre preserva pelo menos uma cópia de cada grupo. Desmarque uma cópia e tente novamente.".to_string());
             }
@@ -1824,17 +2516,27 @@ pub fn tcloud_pro_duplicates_trash(
     }
 
     if moved > 0 {
-        if let Err(error) = crate::commands::tcloud_cfapi::reconcile_remote_index(&app, db.inner()) {
-            log::warn!("TCloud duplicados: atualização do Explorer será refeita depois: {}", error);
+        if let Err(error) = crate::commands::tcloud_cfapi::reconcile_remote_index(&app, db.inner())
+        {
+            log::warn!(
+                "TCloud duplicados: atualização do Explorer será refeita depois: {}",
+                error
+            );
         }
     }
 
-    Ok(ProDuplicateTrashResult { moved, failed, errors })
+    Ok(ProDuplicateTrashResult {
+        moved,
+        failed,
+        errors,
+    })
 }
 
 #[tauri::command]
 pub fn tcloud_pro_cleanup_stats(db: State<'_, DbConnection>) -> Result<ProCleanupStats, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro9_schema(&conn)?;
     let duplicate_groups = scalar_i64(&conn,
         "SELECT COUNT(*) FROM (SELECT sha256 FROM tcloud_files WHERE sha256 IS NOT NULL AND sha256 != '' AND sync_status NOT IN ('trashed','deleted','remote_deleted','pending_delete') GROUP BY sha256 HAVING COUNT(*) > 1)"
@@ -1854,7 +2556,9 @@ pub fn tcloud_pro_cleanup_stats(db: State<'_, DbConnection>) -> Result<ProCleanu
 
 #[tauri::command]
 pub fn tcloud_pro_reindex_text_content(db: State<'_, DbConnection>) -> Result<usize, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro9_schema(&conn)?;
     let mut stmt = conn.prepare(
         "SELECT f.id,f.name,c.local_path FROM tcloud_cache c JOIN tcloud_files f ON f.id=c.file_id"
@@ -1862,28 +2566,41 @@ pub fn tcloud_pro_reindex_text_content(db: State<'_, DbConnection>) -> Result<us
     let mut rows = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
         rows.push((
-            stmt.read::<i64,_>(0).map_err(|e| e.to_string())?,
-            stmt.read::<String,_>(1).map_err(|e| e.to_string())?,
-            stmt.read::<String,_>(2).map_err(|e| e.to_string())?,
+            stmt.read::<i64, _>(0).map_err(|e| e.to_string())?,
+            stmt.read::<String, _>(1).map_err(|e| e.to_string())?,
+            stmt.read::<String, _>(2).map_err(|e| e.to_string())?,
         ));
     }
     drop(stmt);
 
-    let allowed = ["txt","md","csv","json","log","xml","html","htm","ini","yaml","yml","toml","rs","ts","tsx","js","jsx","css","py","sql"];
+    let allowed = [
+        "txt", "md", "csv", "json", "log", "xml", "html", "htm", "ini", "yaml", "yml", "toml",
+        "rs", "ts", "tsx", "js", "jsx", "css", "py", "sql",
+    ];
     let now = chrono::Utc::now().timestamp();
     let mut indexed = 0usize;
     for (file_id, name, local_path) in rows {
         let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-        if !allowed.contains(&ext.as_str()) { continue; }
-        let Ok(bytes) = std::fs::read(&local_path) else { continue; };
-        let limited = if bytes.len() > 2_000_000 { &bytes[..2_000_000] } else { &bytes[..] };
+        if !allowed.contains(&ext.as_str()) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&local_path) else {
+            continue;
+        };
+        let limited = if bytes.len() > 2_000_000 {
+            &bytes[..2_000_000]
+        } else {
+            &bytes[..]
+        };
         let content = String::from_utf8_lossy(limited).to_string();
         let mut upsert = conn.prepare(
             "INSERT INTO tcloud_content_index(file_id,content,indexed_at) VALUES(?1,?2,?3)
              ON CONFLICT(file_id) DO UPDATE SET content=excluded.content,indexed_at=excluded.indexed_at"
         ).map_err(|e| e.to_string())?;
         upsert.bind((1, file_id)).map_err(|e| e.to_string())?;
-        upsert.bind((2, content.as_str())).map_err(|e| e.to_string())?;
+        upsert
+            .bind((2, content.as_str()))
+            .map_err(|e| e.to_string())?;
         upsert.bind((3, now)).map_err(|e| e.to_string())?;
         upsert.next().map_err(|e| e.to_string())?;
         indexed += 1;
@@ -1891,8 +2608,13 @@ pub fn tcloud_pro_reindex_text_content(db: State<'_, DbConnection>) -> Result<us
     Ok(indexed)
 }
 
-fn tcloud_pro_content_search_inner(db: &DbConnection, query: &str) -> Result<Vec<ProContentHit>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+fn tcloud_pro_content_search_inner(
+    db: &DbConnection,
+    query: &str,
+) -> Result<Vec<ProContentHit>, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro9_schema(&conn)?;
     let trimmed = query.trim();
     let needle = format!("%{}%", trimmed.replace('%', "\\%").replace('_', "\\_"));
@@ -1906,16 +2628,24 @@ fn tcloud_pro_content_search_inner(db: &DbConnection, query: &str) -> Result<Vec
     stmt.bind((1, needle.as_str())).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-        let content = stmt.read::<String,_>(5).unwrap_or_default();
+        let content = stmt.read::<String, _>(5).unwrap_or_default();
         let lower = content.to_lowercase();
         let pos = lower.find(&normalized_query).unwrap_or(0);
         let start = pos.saturating_sub(80);
-        let end = std::cmp::min(content.len(), pos.saturating_add(normalized_query.len()).saturating_add(120));
-        let snippet = content.get(start..end).unwrap_or("").replace('\n', " ").replace('\r', " ");
+        let end = std::cmp::min(
+            content.len(),
+            pos.saturating_add(normalized_query.len())
+                .saturating_add(120),
+        );
+        let snippet = content
+            .get(start..end)
+            .unwrap_or("")
+            .replace('\n', " ")
+            .replace('\r', " ");
         out.push(ProContentHit {
             file_id: stmt.read(0).map_err(|e| e.to_string())?,
-            telegram_message_id: stmt.read::<Option<i64>,_>(1).unwrap_or(None),
-            telegram_chat_id: stmt.read::<Option<i64>,_>(2).unwrap_or(None),
+            telegram_message_id: stmt.read::<Option<i64>, _>(1).unwrap_or(None),
+            telegram_chat_id: stmt.read::<Option<i64>, _>(2).unwrap_or(None),
             name: stmt.read(3).map_err(|e| e.to_string())?,
             size: stmt.read(4).unwrap_or(0),
             snippet,
@@ -1935,31 +2665,49 @@ pub async fn tcloud_pro_content_search(
         let result = tcloud_pro_content_search_inner(&db, &query);
         let elapsed = started.elapsed();
         if elapsed >= std::time::Duration::from_millis(500) {
-            log::debug!("TCloud: busca no índice local levou {:?}; executada fora do runtime/UI.", elapsed);
+            log::debug!(
+                "TCloud: busca no índice local levou {:?}; executada fora do runtime/UI.",
+                elapsed
+            );
         }
         result
     })
-        .await
-        .map_err(|e| format!("content search worker failed: {e}"))?
+    .await
+    .map_err(|e| format!("content search worker failed: {e}"))?
 }
 
 #[tauri::command]
-pub fn tcloud_pro_activity_add(db: State<'_, DbConnection>, kind: String, title: String, detail: Option<String>) -> Result<i64, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_pro_activity_add(
+    db: State<'_, DbConnection>,
+    kind: String,
+    title: String,
+    detail: Option<String>,
+) -> Result<i64, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro9_schema(&conn)?;
     let now = chrono::Utc::now().timestamp();
-    let mut stmt = conn.prepare("INSERT INTO tcloud_activity(kind,title,detail,created_at) VALUES(?1,?2,?3,?4)").map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("INSERT INTO tcloud_activity(kind,title,detail,created_at) VALUES(?1,?2,?3,?4)")
+        .map_err(|e| e.to_string())?;
     stmt.bind((1, kind.as_str())).map_err(|e| e.to_string())?;
     stmt.bind((2, title.as_str())).map_err(|e| e.to_string())?;
-    stmt.bind((3, detail.as_deref())).map_err(|e| e.to_string())?;
+    stmt.bind((3, detail.as_deref()))
+        .map_err(|e| e.to_string())?;
     stmt.bind((4, now)).map_err(|e| e.to_string())?;
     stmt.next().map_err(|e| e.to_string())?;
     Ok(crate::db::last_insert_rowid(&conn).unwrap_or(0))
 }
 
 #[tauri::command]
-pub fn tcloud_pro_activity_list(db: State<'_, DbConnection>, limit: Option<i64>) -> Result<Vec<ProActivityItem>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_pro_activity_list(
+    db: State<'_, DbConnection>,
+    limit: Option<i64>,
+) -> Result<Vec<ProActivityItem>, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro9_schema(&conn)?;
     let limit = limit.unwrap_or(100).clamp(1, 500);
     let mut stmt = conn.prepare("SELECT id,kind,title,detail,created_at FROM tcloud_activity ORDER BY created_at DESC LIMIT ?1").map_err(|e| e.to_string())?;
@@ -1970,7 +2718,7 @@ pub fn tcloud_pro_activity_list(db: State<'_, DbConnection>, limit: Option<i64>)
             id: stmt.read(0).map_err(|e| e.to_string())?,
             kind: stmt.read(1).map_err(|e| e.to_string())?,
             title: stmt.read(2).map_err(|e| e.to_string())?,
-            detail: stmt.read::<Option<String>,_>(3).unwrap_or(None),
+            detail: stmt.read::<Option<String>, _>(3).unwrap_or(None),
             created_at: stmt.read(4).unwrap_or(0),
         });
     }
@@ -1978,8 +2726,13 @@ pub fn tcloud_pro_activity_list(db: State<'_, DbConnection>, limit: Option<i64>)
 }
 
 #[tauri::command]
-pub fn tcloud_pro_pause_all_jobs(db: State<'_, DbConnection>, paused: bool) -> Result<usize, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_pro_pause_all_jobs(
+    db: State<'_, DbConnection>,
+    paused: bool,
+) -> Result<usize, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let now = chrono::Utc::now().timestamp();
     let sql = if paused {
         "UPDATE tcloud_sync_jobs SET paused=1,status=CASE WHEN status IN ('running','uploading','downloading','pending') THEN 'paused' ELSE status END,updated_at=?1 WHERE status NOT IN ('completed','cancelled')"
@@ -1996,26 +2749,45 @@ pub fn tcloud_pro_pause_all_jobs(db: State<'_, DbConnection>, paused: bool) -> R
 pub fn tcloud_pro_notify(title: String, body: String) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
         use std::os::windows::process::CommandExt;
-        fn ps_escape(value: &str) -> String { value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('\\', "\\\\").replace('"', "`\"").replace('\'', "''") }
+        use std::process::Command;
+        fn ps_escape(value: &str) -> String {
+            value
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('\\', "\\\\")
+                .replace('"', "`\"")
+                .replace('\'', "''")
+        }
         let title = ps_escape(&title);
         let body = ps_escape(&body);
-        let script = format!(r#"
+        let script = format!(
+            r#"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual></toast>')
 $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('TCloud').Show($toast)
-"#, title, body);
+"#,
+            title, body
+        );
         let mut command = Command::new("powershell.exe");
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        let output = command.args(["-NoProfile","-NonInteractive","-Command", &script]).output().map_err(|e| e.to_string())?;
-        if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+        let output = command
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
         return Ok(true);
     }
     #[cfg(not(target_os = "windows"))]
-    { let _ = (title, body); Ok(false) }
+    {
+        let _ = (title, body);
+        Ok(false)
+    }
 }
 
 // ── TCloud 10 metadata, diagnostics and storage analytics ─────────────────
@@ -2078,25 +2850,38 @@ pub fn tcloud_pro_metadata_get(
     message_id: i64,
     folder_id: Option<i64>,
 ) -> Result<ProFileMetadata, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro10_schema(&conn)?;
     let key = metadata_key(message_id, folder_id);
-    let mut stmt = conn.prepare(
-        "SELECT tags,note,updated_at FROM tcloud_file_metadata WHERE file_key=?1 LIMIT 1"
-    ).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT tags,note,updated_at FROM tcloud_file_metadata WHERE file_key=?1 LIMIT 1")
+        .map_err(|e| e.to_string())?;
     stmt.bind((1, key.as_str())).map_err(|e| e.to_string())?;
     if let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-        let tags_raw = stmt.read::<String,_>(0).unwrap_or_default();
-        let tags = tags_raw.split(',').map(str::trim).filter(|v| !v.is_empty()).map(str::to_string).collect();
+        let tags_raw = stmt.read::<String, _>(0).unwrap_or_default();
+        let tags = tags_raw
+            .split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .collect();
         return Ok(ProFileMetadata {
             message_id,
             folder_id,
             tags,
-            note: stmt.read::<String,_>(1).unwrap_or_default(),
-            updated_at: stmt.read::<i64,_>(2).unwrap_or(0),
+            note: stmt.read::<String, _>(1).unwrap_or_default(),
+            updated_at: stmt.read::<i64, _>(2).unwrap_or(0),
         });
     }
-    Ok(ProFileMetadata { message_id, folder_id, tags: Vec::new(), note: String::new(), updated_at: 0 })
+    Ok(ProFileMetadata {
+        message_id,
+        folder_id,
+        tags: Vec::new(),
+        note: String::new(),
+        updated_at: 0,
+    })
 }
 
 #[tauri::command]
@@ -2107,11 +2892,14 @@ pub fn tcloud_pro_metadata_set(
     tags: Vec<String>,
     note: String,
 ) -> Result<ProFileMetadata, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro10_schema(&conn)?;
     let key = metadata_key(message_id, folder_id);
     let now = chrono::Utc::now().timestamp();
-    let normalized: Vec<String> = tags.into_iter()
+    let normalized: Vec<String> = tags
+        .into_iter()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .take(20)
@@ -2125,46 +2913,72 @@ pub fn tcloud_pro_metadata_set(
     stmt.bind((1, key.as_str())).map_err(|e| e.to_string())?;
     stmt.bind((2, message_id)).map_err(|e| e.to_string())?;
     stmt.bind((3, folder_id)).map_err(|e| e.to_string())?;
-    stmt.bind((4, tags_raw.as_str())).map_err(|e| e.to_string())?;
+    stmt.bind((4, tags_raw.as_str()))
+        .map_err(|e| e.to_string())?;
     stmt.bind((5, note.as_str())).map_err(|e| e.to_string())?;
     stmt.bind((6, now)).map_err(|e| e.to_string())?;
     stmt.next().map_err(|e| e.to_string())?;
-    Ok(ProFileMetadata { message_id, folder_id, tags: normalized, note, updated_at: now })
+    Ok(ProFileMetadata {
+        message_id,
+        folder_id,
+        tags: normalized,
+        note,
+        updated_at: now,
+    })
 }
 
 fn storage_category(name: &str) -> &'static str {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
-        "jpg"|"jpeg"|"png"|"gif"|"webp"|"bmp"|"heic"|"avif" => "Imagens",
-        "mp4"|"mkv"|"mov"|"avi"|"webm"|"m4v" => "Vídeos",
-        "mp3"|"flac"|"wav"|"m4a"|"aac"|"ogg"|"opus" => "Áudio",
-        "pdf"|"doc"|"docx"|"xls"|"xlsx"|"ppt"|"pptx"|"txt"|"md"|"csv" => "Documentos",
-        "zip"|"rar"|"7z"|"tar"|"gz"|"bz2"|"xz" => "Compactados",
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "heic" | "avif" => "Imagens",
+        "mp4" | "mkv" | "mov" | "avi" | "webm" | "m4v" => "Vídeos",
+        "mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "opus" => "Áudio",
+        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "md" | "csv" => {
+            "Documentos"
+        }
+        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" => "Compactados",
         _ => "Outros",
     }
 }
 
 #[tauri::command]
-pub fn tcloud_pro_storage_breakdown(db: State<'_, DbConnection>) -> Result<Vec<ProStorageBucket>, String> {
+pub fn tcloud_pro_storage_breakdown(
+    db: State<'_, DbConnection>,
+) -> Result<Vec<ProStorageBucket>, String> {
     use std::collections::BTreeMap;
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro10_schema(&conn)?;
     let mut stmt = conn.prepare(
         "SELECT name,size FROM tcloud_files WHERE sync_status!='trashed' ORDER BY updated_at DESC"
     ).map_err(|e| e.to_string())?;
-    let mut buckets: BTreeMap<String,(i64,i64)> = BTreeMap::new();
+    let mut buckets: BTreeMap<String, (i64, i64)> = BTreeMap::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-        let name = stmt.read::<String,_>(0).unwrap_or_default();
-        let size = stmt.read::<i64,_>(1).unwrap_or(0).max(0);
-        let entry = buckets.entry(storage_category(&name).to_string()).or_insert((0,0));
+        let name = stmt.read::<String, _>(0).unwrap_or_default();
+        let size = stmt.read::<i64, _>(1).unwrap_or(0).max(0);
+        let entry = buckets
+            .entry(storage_category(&name).to_string())
+            .or_insert((0, 0));
         entry.0 += 1;
         entry.1 += size;
     }
-    let order = ["Vídeos","Imagens","Áudio","Documentos","Compactados","Outros"];
+    let order = [
+        "Vídeos",
+        "Imagens",
+        "Áudio",
+        "Documentos",
+        "Compactados",
+        "Outros",
+    ];
     let mut out = Vec::new();
     for category in order {
-        let (files, bytes) = buckets.remove(category).unwrap_or((0,0));
-        out.push(ProStorageBucket { category: category.to_string(), files, bytes });
+        let (files, bytes) = buckets.remove(category).unwrap_or((0, 0));
+        out.push(ProStorageBucket {
+            category: category.to_string(),
+            files,
+            bytes,
+        });
     }
     Ok(out)
 }
@@ -2175,9 +2989,13 @@ pub fn tcloud_pro_local_duplicate_check(
     path: String,
 ) -> Result<ProDuplicateMatch, String> {
     let path_ref = std::path::Path::new(&path);
-    let size = std::fs::metadata(path_ref).map_err(|e| format!("Could not inspect local file: {e}"))?.len() as i64;
+    let size = std::fs::metadata(path_ref)
+        .map_err(|e| format!("Could not inspect local file: {e}"))?
+        .len() as i64;
     let sha256 = crate::sync::hash::sha256_file(path_ref)?;
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro10_schema(&conn)?;
     let mut stmt = conn.prepare(
         "SELECT name,telegram_message_id,telegram_chat_id FROM tcloud_files WHERE sha256=?1 AND sync_status!='trashed' AND telegram_message_id IS NOT NULL ORDER BY updated_at DESC LIMIT 10"
@@ -2186,13 +3004,25 @@ pub fn tcloud_pro_local_duplicate_check(
     let mut names = Vec::new();
     let mut sources = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-        let name=stmt.read::<String,_>(0).unwrap_or_default();
-        let message_id=stmt.read::<i64,_>(1).unwrap_or(0);
-        let folder_raw=stmt.read::<Option<i64>,_>(2).unwrap_or(None);
+        let name = stmt.read::<String, _>(0).unwrap_or_default();
+        let message_id = stmt.read::<i64, _>(1).unwrap_or(0);
+        let folder_raw = stmt.read::<Option<i64>, _>(2).unwrap_or(None);
         names.push(name.clone());
-        if message_id>0 { sources.push(ProDuplicateSource{name,message_id,folder_id:folder_raw.and_then(|v| if v==0{None}else{Some(v)})}); }
+        if message_id > 0 {
+            sources.push(ProDuplicateSource {
+                name,
+                message_id,
+                folder_id: folder_raw.and_then(|v| if v == 0 { None } else { Some(v) }),
+            });
+        }
     }
-    Ok(ProDuplicateMatch { sha256, size, matches: names.len() as i64, names, sources })
+    Ok(ProDuplicateMatch {
+        sha256,
+        size,
+        matches: names.len() as i64,
+        names,
+        sources,
+    })
 }
 
 #[tauri::command]
@@ -2201,7 +3031,9 @@ pub fn tcloud_pro_export_diagnostics(
     output_path: String,
 ) -> Result<String, String> {
     use std::io::Write;
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     ensure_pro10_schema(&conn)?;
     let stats = ProIndexStats {
         files: scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_files"),
@@ -2214,20 +3046,35 @@ pub fn tcloud_pro_export_diagnostics(
         trash_items: scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_trash"),
         versions: scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_versions"),
     };
-    let quick_check = conn.prepare("PRAGMA quick_check(1)").ok().and_then(|mut stmt| {
-        if matches!(stmt.next(), Ok(sqlite::State::Row)) { stmt.read::<String,_>(0).ok() } else { None }
-    }).unwrap_or_else(|| "unavailable".into());
+    let quick_check = conn
+        .prepare("PRAGMA quick_check(1)")
+        .ok()
+        .and_then(|mut stmt| {
+            if matches!(stmt.next(), Ok(sqlite::State::Row)) {
+                stmt.read::<String, _>(0).ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "unavailable".into());
     let current_failures = scalar_i64(&conn, "SELECT COUNT(DISTINCT j.file_id) FROM tcloud_sync_jobs j JOIN tcloud_files f ON f.id=j.file_id WHERE j.status='failed' AND COALESCE(f.sync_status,'') NOT IN ('synced','deleted','trashed')");
     let stalled_transfers = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status='running' AND COALESCE(updated_at,0) < strftime('%s','now') - 21600");
-    let cfapi_pending = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NULL");
+    let cfapi_pending = scalar_i64(
+        &conn,
+        "SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NULL",
+    );
     let cfapi_failed = scalar_i64(&conn, "SELECT COUNT(DISTINCT file_id) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NULL AND attempts>=12");
     let cloud_only = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_files WHERE local_status='cloud_only' AND sync_status NOT IN ('deleted','trashed')");
     let cached = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_files WHERE local_status='cached' AND sync_status NOT IN ('deleted','trashed')");
     let offline_pinned = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_offline_pins");
     let previous_unclean = {
         let mut value = String::new();
-        if let Ok(mut stmt) = conn.prepare("SELECT value FROM tcloud_settings WHERE key='stability_previous_unclean' LIMIT 1") {
-            if matches!(stmt.next(), Ok(sqlite::State::Row)) { value = stmt.read::<String,_>(0).unwrap_or_default(); }
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT value FROM tcloud_settings WHERE key='stability_previous_unclean' LIMIT 1",
+        ) {
+            if matches!(stmt.next(), Ok(sqlite::State::Row)) {
+                value = stmt.read::<String, _>(0).unwrap_or_default();
+            }
         }
         value == "1"
     };
@@ -2262,12 +3109,21 @@ pub fn tcloud_pro_export_diagnostics(
         },
         "privacy": "API credentials, Telegram session data, passwords, file names, paths and file contents are intentionally excluded"
     });
-    let file = std::fs::File::create(&output_path).map_err(|e| format!("Could not create diagnostics ZIP: {e}"))?;
+    let file = std::fs::File::create(&output_path)
+        .map_err(|e| format!("Could not create diagnostics ZIP: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    zip.start_file("summary.json", options).map_err(|e| e.to_string())?;
-    zip.write_all(serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?.as_bytes()).map_err(|e| e.to_string())?;
-    zip.start_file("README.txt", options).map_err(|e| e.to_string())?;
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("summary.json", options)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(
+        serde_json::to_string_pretty(&summary)
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
+    zip.start_file("README.txt", options)
+        .map_err(|e| e.to_string())?;
     zip.write_all(b"TCloud diagnostics export. Credentials, Telegram session data, file names, paths and file contents are not included.\n").map_err(|e| e.to_string())?;
     zip.finish().map_err(|e| e.to_string())?;
     Ok(output_path)
@@ -2275,14 +3131,18 @@ pub fn tcloud_pro_export_diagnostics(
 
 #[tauri::command]
 pub fn tcloud_pro_export_config(output_path: String, json: String) -> Result<String, String> {
-    serde_json::from_str::<serde_json::Value>(&json).map_err(|e| format!("Invalid configuration JSON: {e}"))?;
-    std::fs::write(&output_path, json.as_bytes()).map_err(|e| format!("Could not save configuration: {e}"))?;
+    serde_json::from_str::<serde_json::Value>(&json)
+        .map_err(|e| format!("Invalid configuration JSON: {e}"))?;
+    std::fs::write(&output_path, json.as_bytes())
+        .map_err(|e| format!("Could not save configuration: {e}"))?;
     Ok(output_path)
 }
 
 #[tauri::command]
 pub fn tcloud_pro_import_config(path: String) -> Result<String, String> {
-    let raw = std::fs::read_to_string(&path).map_err(|e| format!("Could not read configuration: {e}"))?;
-    serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| format!("Invalid configuration JSON: {e}"))?;
+    let raw =
+        std::fs::read_to_string(&path).map_err(|e| format!("Could not read configuration: {e}"))?;
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .map_err(|e| format!("Invalid configuration JSON: {e}"))?;
     Ok(raw)
 }

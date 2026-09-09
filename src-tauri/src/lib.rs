@@ -777,6 +777,9 @@ pub fn run() {
             commands::tcloud_productivity::start_backup_scheduler(
                 db_pool.clone()
             );
+            commands::tcloud_productivity::start_backup_realtime_watchers(
+                db_pool.clone()
+            );
 
             // TCloud 12.8 Phase 2 — suspension/hibernation detector. Tokio timers
             // resume after Windows wakes, so a large gap between ticks is a reliable
