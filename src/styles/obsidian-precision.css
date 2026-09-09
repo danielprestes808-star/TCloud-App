@@ -617,3 +617,77 @@ html.custom-theme .tcloud-viewer-overlay .viewer-navigation {
   background: var(--op-panel) !important;
   border-color: var(--op-border) !important;
 }
+
+/* TCloud Workspace Final — one Windows-like frame, two visual colors. */
+:root {
+  --op-void: #070b12;
+  --op-rail: #0b1220;
+  --op-stage: #101827;
+  --op-panel: #152033;
+  --op-raised: #1b2940;
+  --op-border: #1f304a;
+  --op-border-focus: #2c4770;
+  --op-text: #eef4ff;
+  --op-muted: #9aaac1;
+  --op-faint: #6f819b;
+  --op-indigo: #2563eb;
+  --op-indigo-strong: #1d4ed8;
+  --op-sidebar: 248px;
+  --op-chrome: #0b1220;
+  --op-chrome-control: #101827;
+}
+
+.desktop-shell :is(button,input,select,textarea,[class*="card"],[class*="panel"],[class*="modal"]) {
+  border-radius: 4px !important;
+}
+.desktop-shell .tcloud-explorer-sidebar:not(.is-collapsed) {
+  width: var(--op-sidebar) !important;
+  min-width: var(--op-sidebar) !important;
+}
+.desktop-shell .tcloud-explorer-brand {
+  height: 88px !important;
+  min-height: 88px !important;
+  background: var(--op-chrome) !important;
+}
+.desktop-shell :is(.tcloud-explorer-header,.tcloud-explorer-topbar,.tcloud-explorer-location-row,.tcloud-explorer-command-row,.tcloud-explorer-commandbar) {
+  background: var(--op-chrome) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+}
+.desktop-shell .tcloud-explorer-location-row { height: 50px !important; min-height: 50px !important; }
+.desktop-shell .tcloud-explorer-command-row { height: 38px !important; min-height: 38px !important; }
+.desktop-shell .tcloud-main-pane,
+.desktop-shell .op-dashboard,
+.desktop-shell .tcloud-workspace-view,
+.desktop-shell .tcloud-settings-content { background: var(--op-void) !important; }
+.desktop-shell :is(.op-dashboard-hero,.op-projects,.op-file-table,.op-dashboard-inspector>section,.tcloud-workspace-list,.tcloud-workspace-metrics>div,.tcloud-settings-content section) {
+  border-color: var(--op-border) !important;
+  background: var(--op-stage) !important;
+  box-shadow: none !important;
+}
+.desktop-shell :is(.op-metric-grid,.op-project-grid,.tcloud-workspace-metrics,.tcloud-simple-status-grid,.tcloud-simple-action-grid) {
+  align-items: stretch !important;
+  grid-auto-rows: 1fr !important;
+}
+.desktop-shell :is(.op-metric-grid,.op-project-grid,.tcloud-workspace-metrics,.tcloud-simple-status-grid,.tcloud-simple-action-grid)>* {
+  height: 100% !important;
+  margin: 0 !important;
+}
+.desktop-shell :is(.op-eyebrow,.op-status,.op-transfer-live strong,.tcloud-workspace-icon,.tcloud-explorer-nav-item.is-active svg) {
+  color: #60a5fa !important;
+}
+.desktop-shell :is(.op-transfer-live i b,.tcloud-workspace-progress i b,.tcloud-progress-fill) {
+  background: var(--op-indigo) !important;
+  background-image: none !important;
+}
+.desktop-shell .tcloud-main-pane>.tcloud-settings-page-shell.is-embedded {
+  position: relative !important;
+  inset: auto !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+.desktop-shell .tcloud-settings-page-shell.is-embedded .tcloud-settings-header {
+  background: var(--op-void) !important;
+  border-bottom: 1px solid var(--op-border) !important;
+}
+@media(max-width:1000px){:root{--op-sidebar:220px}.op-dashboard{padding:16px!important}}
