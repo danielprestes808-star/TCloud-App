@@ -14,6 +14,8 @@ export interface TCloudPairingCode {
   code: string;
   expiresAt: string;
 }
+export interface TCloudRemoteProfile { id:string; displayName:string; username?:string; avatarUrl?:string; profileComplete:boolean; verified:boolean; }
+export interface TCloudDevice { id:string; name:string; platform:string; appVersion?:string; lastSeenAt?:string; createdAt:string; active:boolean; current:boolean; }
 
 function token() {
   return window.localStorage.getItem(TOKEN_KEY)?.trim() || '';
@@ -52,20 +54,33 @@ export async function getTCloudAccountStatus(): Promise<TCloudAccountStatus> {
   }
 }
 
-export async function registerTCloudAccount(displayName: string, username: string) {
+export async function registerTCloudAccount(displayName: string, username: string, avatarDataUrl?: string) {
   if (token()) {
-    const response = await core('/api/v1/profile', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName, username }) });
+    const response = await core('/api/v1/profile', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName, username, avatarDataUrl }) });
     const data = await response.json() as { message?: string };
     if (!response.ok) throw new Error(data.message || 'Não foi possível atualizar seu perfil.');
     return;
   }
   const response = await fetch(`${CORE_URL}/api/v1/onboarding/register`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ displayName, username, deviceName: `TCloud em ${navigator.platform || 'Windows'}`, platform: 'windows', appVersion: '13.0.59' }),
+    body: JSON.stringify({ displayName, username, deviceName: `TCloud em ${navigator.platform || 'Windows'}`, platform: 'windows', appVersion: '13.0.60' }),
   });
   const data = await response.json() as { token?: string; deviceId?: string; message?: string };
   if (!response.ok || !data.token || !data.deviceId) throw new Error(data.message || 'Não foi possível criar sua conta TCloud.');
   localStorage.setItem(TOKEN_KEY, data.token); localStorage.setItem(DEVICE_KEY, data.deviceId);
+}
+
+export async function getRemoteProfile(): Promise<TCloudRemoteProfile|null> {
+  if (!token()) return null; const response=await core('/api/v1/profile');
+  if (!response.ok) return null; return response.json();
+}
+export async function listTCloudDevices(): Promise<TCloudDevice[]> {
+  if (!token()) return []; const response=await core('/api/v1/devices');
+  if (!response.ok) throw new Error('Não foi possível carregar os dispositivos.'); return response.json();
+}
+export async function revokeTCloudDevice(deviceId:string) {
+  const response=await core('/api/v1/devices/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({deviceId})});
+  const data=await response.json() as {message?:string}; if(!response.ok) throw new Error(data.message||'Não foi possível revogar o dispositivo.');
 }
 
 export async function pairTCloudAccount(rawCode: string) {
@@ -78,7 +93,7 @@ export async function pairTCloudAccount(rawCode: string) {
       code,
       deviceName: `TCloud em ${navigator.platform || 'Windows'}`,
       platform: 'windows',
-      appVersion: '13.0.50',
+      appVersion: '13.0.60',
     }),
   });
   const data = await response.json() as { token?: string; deviceId?: string; message?: string };

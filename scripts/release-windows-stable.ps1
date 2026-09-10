@@ -98,6 +98,20 @@ try {
       if(-not (Test-Path -LiteralPath $private -PathType Leaf)){throw "Chave privada do updater ausente: $private"}
       $env:TAURI_SIGNING_PRIVATE_KEY=$private
     }
+    if([string]::IsNullOrWhiteSpace([string]$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) -and [string]::IsNullOrWhiteSpace([string]$env:TCLOUD_UPDATER_KEY_PASSWORD)){
+      $protectedPasswordPath=Join-Path $env:USERPROFILE '.tcloud\updater\tcloud-updater.password.dpapi'
+      if(Test-Path -LiteralPath $protectedPasswordPath -PathType Leaf){
+        try{
+          $protectedPassword=(Get-Content -LiteralPath $protectedPasswordPath -Raw).Trim()
+          $securePassword=$protectedPassword|ConvertTo-SecureString
+          $passwordPtr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+          try{$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPtr)}
+          finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordPtr)}
+        }catch{
+          throw ('Falha ao abrir a senha protegida do updater para o usuario atual: '+$_.Exception.Message)
+        }
+      }
+    }
     if([string]::IsNullOrWhiteSpace([string]$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) -and -not [string]::IsNullOrWhiteSpace([string]$env:TCLOUD_UPDATER_KEY_PASSWORD)){
       $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$env:TCLOUD_UPDATER_KEY_PASSWORD
     }
@@ -167,7 +181,7 @@ try {
     if($updaterArtifactUrl -notmatch '^https://'){throw 'URL final do artefato do updater deve usar HTTPS.'}
     $latest=[ordered]@{
       version=$version
-      notes=('TCloud '+$version+' — atualizacao automatica assinada.')
+      notes=('TCloud '+$version+' - perfis verificados, foto de perfil e gerenciamento de dispositivos.')
       pub_date=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
       platforms=[ordered]@{
         'windows-x86_64'=[ordered]@{signature=$signatureText;url=$updaterArtifactUrl}

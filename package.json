@@ -1,7 +1,7 @@
 {
   "name": "tcloud",
   "private": true,
-  "version": "13.0.59",
+  "version": "13.0.60",
   "type": "module",
   "scripts": {
     "dev": "vite",
