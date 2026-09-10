@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
-import { Phone, Key, Lock, ArrowRight, ShieldCheck, Sun, Moon, QrCode, AlertTriangle } from "lucide-react";
+import { Phone, Key, Lock, ArrowRight, ShieldCheck, Sun, Moon, AlertTriangle, UserRound, AtSign } from "lucide-react";
 import { useTheme } from '../../context/ThemeContext';
 import { QRCodeSVG } from 'qrcode.react';
+import { getLocalProfile, saveLocalProfile } from '../../services/tcloudProfile';
+import { registerTCloudAccount } from '../../services/tcloudAccount';
 
 import { useTranslation } from "react-i18next";
 
-type Step = "phone" | "code" | "password";
+type Step = "profile" | "phone" | "code" | "password";
 
 function AuthThemeToggle() {
     const { theme, toggleTheme } = useTheme();
@@ -49,13 +51,15 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
         )
     }
 
-    const [step, setStep] = useState<Step>("phone");
+    const [step, setStep] = useState<Step>(() => getLocalProfile() ? "phone" : "profile");
     const [loading, setLoading] = useState(false);
 
     const [phone, setPhone] = useState("");
     const countryCode = "+55";
     const [code, setCode] = useState("");
     const [password, setPassword] = useState("");
+    const [displayName, setDisplayName] = useState(() => getLocalProfile()?.displayName ?? '');
+    const [username, setUsername] = useState(() => getLocalProfile()?.username ?? '');
     const [error, setError] = useState<string | null>(null);
     const [floodWait, setFloodWait] = useState<number | null>(null);
     const [loginMethod, setLoginMethod] = useState<'phone' | 'qr'>('phone');
@@ -178,6 +182,18 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
         }
     };
 
+    const handleProfileSubmit = async (e: React.FormEvent) => {
+        e.preventDefault(); setError(null); setLoading(true);
+        try {
+            const profile = saveLocalProfile(displayName, username);
+            await registerTCloudAccount(profile.displayName, profile.username);
+            const saved = await invoke<boolean>('cmd_has_saved_session');
+            if (saved) { onLogin(); return; }
+            setStep('phone');
+        } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+        finally { setLoading(false); }
+    };
+
     const handleCodeSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
@@ -262,6 +278,15 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                     ) : (
                         <>
 
+                            {step === "profile" && (
+                                <motion.form key="profile" onSubmit={handleProfileSubmit} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-5">
+                                    <div><h2 className="text-app-title font-semibold text-app-text">Crie seu perfil</h2><p className="mt-1 text-ui text-app-text-secondary">Este nome identifica você no TCloud e nos compartilhamentos.</p></div>
+                                    <div className="space-y-2"><label className="auth-label">Seu nome</label><div className="relative"><UserRound className="auth-input-icon"/><input className="auth-input" value={displayName} onChange={e=>setDisplayName(e.target.value)} autoComplete="name" autoFocus placeholder="Como devemos chamar você?" maxLength={60}/></div></div>
+                                    <div className="space-y-2"><label className="auth-label">Nome de usuário</label><div className="relative"><AtSign className="auth-input-icon"/><input className="auth-input" value={username} onChange={e=>setUsername(e.target.value)} autoCapitalize="none" spellCheck={false} placeholder="seu_usuario" maxLength={32}/></div><p className="auth-phone-hint">Único no TCloud. Use letras, números ou _.</p></div>
+                                    <button type="submit" disabled={loading} className="quiet-control auth-primary-action w-full">{loading?'Salvando…':<>Continuar <ArrowRight className="h-4 w-4"/></>}</button>
+                                </motion.form>
+                            )}
+
 
 
 
@@ -287,32 +312,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                             </div>
                                         </div>
                                     )}
-
-                                    {/* Phone / QR Toggle */}
-                                    <div className="quiet-control flex overflow-hidden border border-app-border bg-app-surface-sunken/40 p-0.5">
-                                            <button
-                                                type="button"
-                                                onClick={() => { setLoginMethod('phone'); setQrUrl(null); setQrPolling(false); setError(null); }}
-                                                className={`quiet-control flex h-8 flex-1 items-center justify-center gap-2 text-metadata font-medium ${
-                                                    loginMethod === 'phone'
-                                                        ? 'bg-app-surface-raised text-app-text shadow-sm'
-                                                        : 'text-app-text-secondary hover:text-app-text'
-                                                }`}
-                                            >
-                                                <Phone className="w-4 h-4" /> Telefone
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => { if (appCredentialsReady === true) { setLoginMethod('qr'); setError(null); handleQrLogin(); } }}
-                                                className={`quiet-control flex h-8 flex-1 items-center justify-center gap-2 text-metadata font-medium ${
-                                                    loginMethod === 'qr'
-                                                        ? 'bg-app-surface-raised text-app-text shadow-sm'
-                                                        : 'text-app-text-secondary hover:text-app-text'
-                                                }`}
-                                            >
-                                                <QrCode className="w-4 h-4" /> QR Code
-                                            </button>
-                                    </div>
 
                                     {loginMethod === 'phone' ? (
                                         <form onSubmit={handlePhoneSubmit} className="space-y-5">

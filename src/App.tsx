@@ -7,6 +7,8 @@ import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import "./App.css";
 import "./styles/tcloud-explorer.css";
+// Single authoritative visual layer generated from the approved Stitch project.
+import "./styles/obsidian-precision.css";
 
 const DesktopDashboard = React.lazy(() => import("./components/desktop/DesktopDashboard").then(m => ({ default: m.Dashboard })));
 const AuthWizard = React.lazy(() => import("./components/shared/AuthWizard").then(m => ({ default: m.AuthWizard })));
@@ -28,7 +30,10 @@ import { installClientDiagnostics } from "./services/tcloudDiagnostics";
 import { applyPerformanceProfile, getAutoEconomyEnabled, getPerformanceProfile } from "./services/tcloudPerformance";
 import { markUpdateHealthy, runUpdateStartupGuard } from "./services/tcloudCompletion";
 import { exit } from "@tauri-apps/plugin-process";
+import { getLocalProfile } from "./services/tcloudProfile";
+import { hasTCloudAccount } from "./services/tcloudAccount";
 
+import "./services/tcloudFoundation5";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -138,6 +143,10 @@ function AppContent() {
 
     const restoreSession = async () => {
       try {
+        if (!getLocalProfile() || !hasTCloudAccount()) {
+          setAuthStatus("unauthenticated");
+          return;
+        }
         const hasSavedSession =
           await invoke<boolean>("cmd_has_saved_session");
 

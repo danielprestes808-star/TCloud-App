@@ -1,6 +1,6 @@
 [package]
 name = "tcloud"
-version = "13.0.58"
+version = "13.0.59"
 description = "TCloud â€” armazenamento e sincronizaÃ§Ã£o de arquivos no Windows com Telegram como backend."
 authors = ["TCloud Development"]
 edition = "2021"
