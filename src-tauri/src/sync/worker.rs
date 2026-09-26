@@ -68,11 +68,7 @@ pub struct WorkerResult {
 
 /// Generic worker processor. Actual upload/download execution is injected
 /// through callbacks so the worker is testable without a Telegram connection.
-pub fn process_job<FU, FD>(
-    job: &mut SyncJob,
-    mut upload: FU,
-    mut download: FD,
-) -> WorkerResult
+pub fn process_job<FU, FD>(job: &mut SyncJob, mut upload: FU, mut download: FD) -> WorkerResult
 where
     FU: FnMut(&SyncJob) -> Result<(), String>,
     FD: FnMut(&SyncJob) -> Result<(), String>,

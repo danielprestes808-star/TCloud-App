@@ -256,7 +256,7 @@ export function TCloudAdvancedCenterModal({
   onRunBackup,
   initialTab = 'index',
 }: Props) {
-  const [showTechnicalTabs, setShowTechnicalTabs] = useState(() => localStorage.getItem('tcloud:advanced-ui') === 'true');
+  const [showTechnicalTabs, setShowTechnicalTabs] = useState(false);
   const initialVisibleTab = showTechnicalTabs || SIMPLE_ADVANCED_TABS.has(initialTab) ? initialTab : 'health';
   const [tab, setTab] = useState<TCloudAdvancedTab>(initialVisibleTab);
   const [stats, setStats] = useState<ProIndexStats | null>(null);
@@ -696,7 +696,7 @@ export function TCloudAdvancedCenterModal({
     if (tab === 'content') {
       return <Feature title="Busca por conteúdo, PDF e OCR" description="Baixa sob demanda os documentos/imagens indexáveis, extrai texto de PDFs e usa OCR local do Windows. A interface continua responsiva porque os downloads entram na fila do Sync.">
         <div className="tcloud-pro-actions"><Action icon={CloudDownload} onClick={async()=>{if(!window.confirm('A indexação completa precisa baixar conteúdo que ainda está somente na nuvem. Continuar com um lote de até 250 arquivos?'))return;const result=await queueIndexableDownloads(250);toast.success(`${result.queued} documento(s)/imagem(ns) adicionados à fila para indexação. ${result.already_queued} já estavam na fila.`);}}>Baixar biblioteca indexável</Action><Action icon={ScanText} onClick={async()=>{setBusy(true);try{const result=await reindexFullContent(true);setContentIndexResult(result);toast.success(`${result.text_files} texto(s), ${result.pdf_files} PDF(s) e ${result.ocr_images} imagem(ns) indexados.`);}finally{setBusy(false);}}}>{busy?'Indexando…':'Indexar texto + PDF + OCR'}</Action></div>
-        {contentIndexResult&&<MetricGrid values={[[ 'Textos',contentIndexResult.text_files ],[ 'PDFs',contentIndexResult.pdf_files ],[ 'OCR',contentIndexResult.ocr_images ],[ 'Ignorados',contentIndexResult.skipped ]]}/>} 
+        {contentIndexResult&&<MetricGrid values={[[ 'Textos',contentIndexResult.text_files ],[ 'PDFs',contentIndexResult.pdf_files ],[ 'OCR',contentIndexResult.ocr_images ],[ 'Ignorados',contentIndexResult.skipped ]]}/>}
         {contentIndexResult?.errors?.length ? <details className="tcloud-error-row"><summary>{contentIndexResult.errors.length} aviso(s) de indexação</summary><pre>{contentIndexResult.errors.join('\n')}</pre></details>:null}
         <div className="tcloud-pro-actions"><input className="tcloud-pro-input" value={contentQuery} onChange={(e)=>setContentQuery(e.target.value)} placeholder="Texto dentro do PDF, imagem ou arquivo..."/><Action icon={Search} onClick={async()=>setContentHits(await searchIndexedContent(contentQuery))}>Pesquisar</Action></div>
         <div className="tcloud-pro-list">{contentHits.map((hit)=><div className="tcloud-pro-list-row" key={hit.file_id}><div className="min-w-0 flex-1"><strong>{hit.name}</strong><small>{formatBytesCompact(hit.size)} · {hit.snippet || 'Correspondência no nome do arquivo'}</small></div></div>)}</div>
@@ -831,7 +831,7 @@ export function TCloudAdvancedCenterModal({
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-app-overlay p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="tcloud-pro-modal" onClick={(event) => event.stopPropagation()}>
-        <header className="tcloud-pro-header"><div><span>TCLOUD</span><h2>{showTechnicalTabs ? 'Ferramentas avançadas' : 'Recursos avançados'}</h2><p>{showTechnicalTabs ? 'Diagnóstico, integração, desempenho e recursos técnicos.' : 'Recursos adicionais e ferramentas de manutenção do TCloud.'}</p></div><button onClick={onClose}><X className="h-4 w-4" /></button></header>
+        <header className="tcloud-pro-header"><div><span>TCLOUD</span><h2>{showTechnicalTabs ? 'Ferramentas' : 'Recursos avançados'}</h2><p>{showTechnicalTabs ? 'Opcoes extras do TCloud. Recursos tecnicos ficam ocultos por padrao.' : 'Recursos adicionais e ferramentas de manutenção do TCloud.'}</p></div><button onClick={onClose}><X className="h-4 w-4" /></button></header>
         <div className="tcloud-pro-layout">
           <nav className="tcloud-pro-nav">{visibleTabs.map(({ id, label, icon: Icon, number }) => <button key={id} className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}><span className="tcloud-pro-nav-number">{number}</span><Icon className="h-4 w-4" /><span>{label}</span></button>)}</nav>
           <main className="tcloud-pro-content">{content}</main>

@@ -130,7 +130,14 @@ pub fn upsert_encrypted_file(
         .bind((10, record.protection_mode.as_str()))
         .map_err(|error| CryptoError::internal(error.to_string()))?;
     statement
-        .bind((11, if record.metadata_protected { 1i64 } else { 0i64 }))
+        .bind((
+            11,
+            if record.metadata_protected {
+                1i64
+            } else {
+                0i64
+            },
+        ))
         .map_err(|error| CryptoError::internal(error.to_string()))?;
     statement
         .bind((12, record.header_blob.as_deref()))

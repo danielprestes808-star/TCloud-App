@@ -13,6 +13,7 @@ export function useVideoMetadata(
     messageId: number,
     folderId: number | null,
     fileName: string,
+    enabled = true,
 ) {
     const isMp4 = fileName.toLowerCase().endsWith('.mp4');
 
@@ -30,7 +31,7 @@ export function useVideoMetadata(
                 return null;
             }
         },
-        enabled: isMp4,
+        enabled: isMp4 && enabled,
         staleTime: METADATA_STALE_TIME,
         gcTime: 12 * 60 * 60 * 1000,
         refetchOnWindowFocus: false,

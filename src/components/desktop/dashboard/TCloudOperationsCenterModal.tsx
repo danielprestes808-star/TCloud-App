@@ -14,7 +14,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  cleanupTCloudCache,
   getTCloudCacheStatus,
   setTCloudCacheLimit,
   type TCloudCacheStatus,
@@ -120,7 +119,7 @@ export function TCloudOperationsCenterModal({ isOpen, onClose }: Props) {
   const [network, setNetwork] = useState<TCloudNetworkSettings>({ economy_mode: false, upload_limit_bps: 0, download_limit_bps: 0 });
   const [globalPause, setGlobalPause] = useState<GlobalPauseState | null>(null);
   const [busy, setBusy] = useState(false);
-  const [cacheLimitGb, setCacheLimitGb] = useState(10);
+  const [cacheLimitGb, setCacheLimitGb] = useState(2);
 
   const refresh = useCallback(async () => {
     if (!isOpen) return;
@@ -209,7 +208,7 @@ export function TCloudOperationsCenterModal({ isOpen, onClose }: Props) {
 
   const cleanupCache = async () => {
     setBusy(true);
-    try { setCache(await cleanupTCloudCache()); } finally { setBusy(false); }
+    try { await invoke<number>('tcloud_storage_guard_cleanup_now'); setCache(await getTCloudCacheStatus()); } finally { setBusy(false); }
   };
 
   const setPause = async (until: number) => {
@@ -416,8 +415,10 @@ export function TCloudOperationsCenterModal({ isOpen, onClose }: Props) {
                 <p className="tcloud-simple-description">O TCloud guarda arquivos recentes no computador para abrir mais rápido. Os arquivos continuam seguros na nuvem.</p>
                 <div className="tcloud-cache-summary"><div><span>Usado</span><strong>{formatBytes(cache?.current_bytes ?? 0)}</strong></div><div><span>Limite</span><strong>{formatBytes(cache?.limit_bytes ?? 0)}</strong></div><div><span>Ocupação</span><strong>{cachePercent}%</strong></div></div>
                 <div className="tcloud-cache-meter"><span style={{ width: `${cachePercent}%` }} /></div>
-                <label className="tcloud-cache-limit"><span>Máximo que o TCloud pode usar neste computador</span><div><input type="number" min={1} max={500} value={cacheLimitGb} onChange={(e) => setCacheLimitGb(Number(e.target.value))} /><b>GB</b></div></label>
-                <div className="tcloud-cache-actions"><button onClick={() => void applyCacheLimit()} disabled={busy}>Salvar</button><button onClick={() => void cleanupCache()} disabled={busy}>Liberar espaço extra</button></div>
+                <label className="tcloud-cache-limit"><span>Máximo que o TCloud pode usar neste computador</span><div><select value={cacheLimitGb} onChange={(e) => setCacheLimitGb(Number(e.target.value))}>{[1,2,5,10,20].map((value)=><option key={value} value={value}>{value} GB</option>)}</select></div></label>
+                <p className="tcloud-simple-description">Vídeos não fixados usam cache temporário e são liberados depois de 24 horas. Arquivos marcados como Disponível offline nunca entram na limpeza automática.</p>
+                <p className="tcloud-simple-description">Proteção de disco: se o Windows ficar com menos de 10 GB livres, o TCloud libera cache antigo automaticamente.</p>
+                <div className="tcloud-cache-actions"><button onClick={() => void applyCacheLimit()} disabled={busy}>Salvar limite</button><button onClick={() => void cleanupCache()} disabled={busy}>Liberar espaço agora</button></div>
               </div>
             </section>
           )}

@@ -79,17 +79,17 @@ export function PdfViewer({ file, onClose, onNext, onPrev, currentIndex, totalIt
         const folderIdParam = activeFolderId !== null ? activeFolderId.toString() : 'home';
         const streamUrl = `${streamInfo.base_url}/stream/${folderIdParam}/${file.id}?token=${streamInfo.token}`;
 
-        const loadingTask = pdfjsLib.getDocument(streamUrl);
+        const loadingTask = pdfjsLib.getDocument({ url: streamUrl });
 
         loadingTask.promise.then(
              (pdfDoc) => {
                  if (cancelled) {
-                     pdfDoc.destroy();
+                     void pdfDoc.cleanup();
                      return;
                  }
                  // Destroy previous document if any
                  if (pdfRef.current) {
-                     pdfRef.current.destroy();
+                     void pdfRef.current.cleanup();
                  }
                  pdfRef.current = pdfDoc;
                  setPdf(pdfDoc);
@@ -114,7 +114,7 @@ export function PdfViewer({ file, onClose, onNext, onPrev, currentIndex, totalIt
     useEffect(() => {
         return () => {
             if (pdfRef.current) {
-                pdfRef.current.destroy();
+                void pdfRef.current.cleanup();
                 pdfRef.current = null;
             }
         };

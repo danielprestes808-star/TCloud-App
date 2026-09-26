@@ -148,7 +148,7 @@
     }
 }
 
-/* NÃ£o use zoom pesado durante drag. */
+/* Não use zoom pesado durante drag. */
 .file-card-container:has(.is-drop-target) .tcloud-file-card,
 .file-card-container:active .tcloud-file-card {
     transform: none;
@@ -187,7 +187,7 @@
 
 /*
  * O componente ainda declara width:232 inline.
- * max-width forÃ§a a versÃ£o expandida a ocupar menos espaÃ§o
+ * max-width forÃ§a a versÃ£o expandida a ocupar menos espaço
  * sem alterar a lÃ³gica React da sidebar.
  */
 .tcloud-sidebar.tcloud-explorer-sidebar:not(.is-collapsed) {
@@ -256,7 +256,7 @@
     opacity: .62;
 }
 
-/* menos espaÃ§o na parte inferior */
+/* menos espaço na parte inferior */
 .tcloud-sidebar .mt-auto {
     padding-top: 5px !important;
 }
@@ -338,7 +338,7 @@
 
 /*
  * Footer mais curto:
- * a imagem ganha mais espaÃ§o e o nome nÃ£o ocupa duas linhas.
+ * a imagem ganha mais espaço e o nome nÃ£o ocupa duas linhas.
  */
 .tcloud-file-footer {
     min-height: 39px !important;
@@ -585,7 +585,23 @@
     padding: 0 2px 6px !important;
     border-bottom:
         1px solid var(--color-app-border-subtle) !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
+
+.tcloud-home-settings-button {
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--color-app-border-subtle);
+    border-radius: 7px;
+    color: var(--color-app-text-secondary);
+    background: var(--color-app-surface);
+    font-size: 9px;
+}
+
+.tcloud-home-settings-button:hover { background: var(--color-app-hover); color: var(--color-app-text); }
 
 .tcloud-home-compact-header h2 {
     margin: 0 !important;
@@ -648,6 +664,77 @@
     border-radius: 5px !important;
     padding: 3px 8px !important;
     font-size: 8.5px !important;
+}
+
+.tcloud-home-health.is-ok {
+    border-color: color-mix(in srgb, var(--color-app-success) 28%, var(--color-app-border-subtle)) !important;
+    background: color-mix(in srgb, var(--color-app-success) 5%, transparent) !important;
+}
+
+.tcloud-home-health.is-ok .tcloud-home-health-icon { color: var(--color-app-success); }
+
+.tcloud-home-live-progress {
+    display: block;
+    position: relative;
+    height: 3px;
+    margin-top: 5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--color-app-hover);
+}
+
+.tcloud-home-live-progress > span {
+    display: block;
+    width: 34%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-app-accent);
+}
+
+.tcloud-home-live-progress > span.is-running { animation: tcloud-home-sync-motion 1.25s ease-in-out infinite; }
+
+@keyframes tcloud-home-sync-motion {
+    from { transform: translateX(-105%); }
+    to { transform: translateX(300%); }
+}
+
+.tcloud-home-system-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    margin: 0 0 8px;
+}
+
+.tcloud-home-system-strip > button,
+.tcloud-home-startup-toggle {
+    display: flex;
+    min-height: 46px;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border: 1px solid var(--color-app-border-subtle);
+    border-radius: 7px;
+    background: var(--color-app-surface);
+    color: var(--color-app-text-secondary);
+    text-align: left;
+}
+
+.tcloud-home-system-strip > button:hover { background: var(--color-app-hover); }
+.tcloud-home-system-strip span { min-width: 0; flex: 1; }
+.tcloud-home-system-strip strong,
+.tcloud-home-system-strip small { display: block; }
+.tcloud-home-system-strip strong { color: var(--color-app-text); font-size: 9.5px; font-weight: 650; }
+.tcloud-home-system-strip small { margin-top: 2px; color: var(--color-app-text-tertiary); font-size: 7.5px; }
+
+.tcloud-home-startup-toggle input {
+    width: 30px;
+    height: 17px;
+    accent-color: var(--color-app-accent);
+    cursor: pointer;
+}
+
+@media (max-width: 1120px) {
+    .tcloud-home-system-strip { grid-template-columns: 1fr; }
 }
 
 
@@ -3045,3 +3132,5 @@
     min-height: 26px !important;
     font-size: 11px !important;
 }
+.tcloud-sidebar-more-items { display: grid; gap: 2px; padding-left: 8px; }
+.tcloud-sidebar-more-toggle { color: var(--app-text-secondary); }

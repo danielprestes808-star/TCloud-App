@@ -1,0 +1,112 @@
+/*
+ * TCloud Design System 1.0
+ * Fonte visual oficial para Desktop.
+ * Nao remova variaveis sem atualizar Web e Mobile.
+ */
+:root {
+  --tc-bg: #0F1115;
+  --tc-surface: #171A20;
+  --tc-surface-soft: #1D2129;
+  --tc-surface-raised: #242933;
+
+  --tc-border: #2C333F;
+  --tc-border-strong: #3A4351;
+
+  --tc-text: #F5F7FA;
+  --tc-text-secondary: #AAB3C0;
+  --tc-text-muted: #7F8996;
+
+  --tc-primary: #2F81F7;
+  --tc-primary-hover: #4B93FA;
+  --tc-primary-soft: rgba(47, 129, 247, 0.14);
+
+  --tc-success: #3FB950;
+  --tc-warning: #D29922;
+  --tc-danger: #F85149;
+  --tc-info: #58A6FF;
+
+  --tc-radius-xs: 6px;
+  --tc-radius-sm: 8px;
+  --tc-radius-md: 10px;
+  --tc-radius-lg: 12px;
+  --tc-radius-xl: 16px;
+
+  --tc-space-xs: 4px;
+  --tc-space-sm: 8px;
+  --tc-space-md: 12px;
+  --tc-space-lg: 16px;
+  --tc-space-xl: 24px;
+  --tc-space-xxl: 32px;
+
+  --tc-sidebar-width: 232px;
+  --tc-topbar-height: 52px;
+  --tc-row-height: 44px;
+  --tc-control-height: 36px;
+
+  --tc-motion-fast: 120ms;
+  --tc-motion-normal: 180ms;
+  --tc-motion-slow: 240ms;
+
+  color-scheme: dark;
+}
+
+.tc-surface {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: var(--tc-radius-lg);
+}
+
+.tc-control {
+  min-height: var(--tc-control-height);
+  border-radius: var(--tc-radius-md);
+  border: 1px solid var(--tc-border);
+  background: var(--tc-surface-soft);
+  color: var(--tc-text);
+  transition:
+    background var(--tc-motion-fast) ease,
+    border-color var(--tc-motion-fast) ease,
+    transform var(--tc-motion-fast) ease;
+}
+
+.tc-control:hover {
+  background: var(--tc-surface-raised);
+  border-color: var(--tc-border-strong);
+}
+
+.tc-control:focus-visible {
+  outline: 2px solid var(--tc-primary);
+  outline-offset: 2px;
+}
+
+.tc-primary-action {
+  border-color: transparent;
+  background: var(--tc-primary);
+  color: white;
+}
+
+.tc-primary-action:hover {
+  background: var(--tc-primary-hover);
+}
+
+.tc-file-row {
+  min-height: var(--tc-row-height);
+}
+
+.tc-muted {
+  color: var(--tc-text-secondary);
+}
+
+.tc-sync-online { color: var(--tc-info); }
+.tc-sync-offline { color: var(--tc-success); }
+.tc-sync-active { color: var(--tc-primary); }
+.tc-sync-warning { color: var(--tc-warning); }
+.tc-sync-error { color: var(--tc-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

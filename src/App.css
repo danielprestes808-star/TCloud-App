@@ -1,3 +1,4 @@
+@import "./styles/tcloud-design-system.css";
 @import "tailwindcss";
 
 /* stylelint-disable at-rule-no-unknown */
@@ -49,6 +50,54 @@
   --color-telegram-glass-bg: var(--color-app-surface);
   --color-telegram-glass-border: var(--color-app-text);
 }
+
+/* TCLOUD WORKSPACE UI 2.0 — navegação clara, ação primária e densidade consistente */
+.tcloud-explorer-sidebar:not(.is-collapsed) {
+  width: 268px !important;
+  background: linear-gradient(180deg, #111a2c 0%, #151f32 100%) !important;
+  border-right: 1px solid rgba(148, 163, 184, .18) !important;
+}
+.tcloud-sidebar-primary-action { padding: 14px 16px 10px; }
+.tcloud-sidebar-primary-action button {
+  width: 100%; height: 48px; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; border: 1px solid rgba(255,255,255,.12); border-radius: 15px;
+  background: linear-gradient(135deg, var(--color-app-accent), #765bf0); color: #fff; font-weight: 750;
+  box-shadow: 0 8px 24px rgba(71,85,210,.24); transition: transform .16s ease, box-shadow .16s ease;
+}
+.tcloud-sidebar-primary-action button:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(0,0,0,.3); }
+.tcloud-explorer-brand { min-height: 72px !important; padding-inline: 18px !important; }
+.tcloud-explorer-nav-group { padding: 8px 12px 14px !important; gap: 4px !important; }
+.tcloud-explorer-nav-item { min-height: 42px !important; border-radius: 11px !important; padding-inline: 13px !important; }
+.tcloud-explorer-nav-item.is-active { background: rgba(99, 133, 255, .18) !important; color: #a9bdff !important; }
+.tcloud-explorer-section { margin: 2px 12px 12px !important; padding-top: 12px !important; border-top: 1px solid rgba(148,163,184,.12); }
+.tcloud-explorer-section-title { padding: 0 8px 8px !important; letter-spacing: .11em !important; }
+.tcloud-explorer-main { background: #0c1423 !important; }
+.tcloud-explorer-topbar { background: rgba(15,24,40,.94) !important; backdrop-filter: blur(18px); }
+@media (max-width: 920px) {
+  .tcloud-explorer-sidebar:not(.is-collapsed) { width: 232px !important; }
+}
+
+/* Desktop Workspace 3.0: dashboard bento e hierarquia de produto */
+.tcloud-drive-home { padding: 28px 30px 48px !important; display:grid !important; grid-template-columns:minmax(0,1.55fr) minmax(300px,.75fr); gap:18px !important; align-content:start; }
+.tcloud-drive-home-header { grid-column:1/-1; min-height:148px; padding:28px 30px !important; border:1px solid rgba(128,151,204,.2); border-radius:24px !important; background:radial-gradient(circle at 78% 20%,rgba(93,126,255,.24),transparent 34%),linear-gradient(135deg,#1b2b49,#101a2c 72%) !important; box-shadow:0 22px 60px rgba(2,8,23,.28); }
+.tcloud-drive-home-header h2 { font-size:32px !important; letter-spacing:-.04em; }
+.tcloud-drive-home-header p { font-size:14px !important; margin-top:7px !important; }
+.tcloud-home-health { grid-column:2; grid-row:2; min-height:132px; border-radius:19px !important; padding:20px !important; align-items:flex-start !important; }
+.tcloud-home-system-strip { grid-column:2; grid-row:3; display:grid !important; grid-template-columns:1fr !important; border-radius:19px !important; overflow:hidden; }
+.tcloud-home-locations { grid-column:1; grid-row:2/4; display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:12px !important; }
+.tcloud-home-locations>button { min-height:110px !important; padding:20px !important; border-radius:19px !important; align-items:flex-start !important; flex-direction:column !important; justify-content:space-between !important; background:linear-gradient(145deg,rgba(29,43,68,.9),rgba(19,30,49,.9)) !important; }
+.tcloud-home-locations>button svg { width:24px !important;height:24px !important; }
+.tcloud-home-locations strong { font-size:13px !important; }
+.tcloud-home-locations small { font-size:10px !important; }
+.tcloud-quick-access,.tcloud-favorite-strip,.tcloud-all-files-section { grid-column:1/-1; padding:20px !important; border:1px solid rgba(148,163,184,.14); border-radius:20px; background:rgba(19,29,47,.7); }
+@media(max-width:1050px){.tcloud-drive-home{grid-template-columns:1fr}.tcloud-home-health,.tcloud-home-system-strip,.tcloud-home-locations{grid-column:1;grid-row:auto}.tcloud-drive-home-header{grid-column:1}.tcloud-home-locations{grid-template-columns:repeat(2,1fr)!important}}
+.tcloud-device-roots { display:grid; gap:8px; }
+.tcloud-device-root-card { display:grid;grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid rgba(148,163,184,.13);border-radius:13px;background:rgba(255,255,255,.035);text-align:left;color:var(--color-app-text-primary); }
+.tcloud-device-root-card:hover { background:rgba(99,133,255,.12);border-color:rgba(99,133,255,.3); }
+.tcloud-device-root-icon { display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:rgba(99,133,255,.15);color:#9db3ff; }
+.tcloud-device-root-icon.is-phone { background:rgba(43,191,138,.13);color:#63d7aa; }
+.tcloud-device-root-card>span:nth-child(2){display:flex;min-width:0;flex-direction:column}.tcloud-device-root-card strong{font-size:11px}.tcloud-device-root-card small{font-size:8px;color:var(--color-app-text-tertiary)}
+.tcloud-settings-context-heading{padding:8px 2px 0}.tcloud-settings-context-heading span{font-size:9px;font-weight:850;letter-spacing:.13em;color:var(--color-app-accent)}.tcloud-settings-context-heading h3{margin:5px 0 2px;font-size:18px}.tcloud-settings-context-heading p{margin:0;color:var(--color-app-text-tertiary);font-size:10px}
 
 /* Light Theme Overrides */
 :root.light {
@@ -2751,6 +2800,15 @@ textarea:disabled {
   color: var(--color-app-text);
 }
 
+.tcloud-cache-limit select {
+  width: 5rem;
+  background: transparent;
+  border: 0;
+  padding: 0 .45rem;
+  outline: none;
+  color: var(--color-app-text);
+}
+
 .tcloud-cache-limit b {
   padding: 0 .45rem;
   font-size: .55rem;
@@ -4142,6 +4200,14 @@ textarea:disabled {
     transform: none !important;
   }
 }
+
+/* TCloud Fluent 2026 — Windows-like density and restrained glass. */
+:root { --color-app-canvas:#090a0f;--color-app-sidebar:#0e1016;--color-app-surface:#12141b;--color-app-surface-raised:#191c25;--color-app-surface-sunken:#08090d;--color-app-accent:#8b5cf6;--color-app-accent-hover:#9f7aea;--color-app-accent-soft:rgb(139 92 246/.14);--color-app-border-subtle:rgb(255 255 255/.055);--color-app-border:rgb(255 255 255/.1);--color-app-text:#e9eaf0;--color-app-text-secondary:#a9acb7;--color-app-text-tertiary:#747885;--radius-control:6px;--radius-container:8px;--radius-overlay:10px }
+.tcloud-explorer-sidebar:not(.is-collapsed){width:244px!important;background:rgb(14 16 22/.94)!important;backdrop-filter:blur(18px) saturate(120%)}
+.tcloud-explorer-brand{min-height:58px!important;padding-inline:14px!important}.tcloud-explorer-brand img{border-radius:6px}.tcloud-sidebar-primary-action{padding:10px 12px 8px!important}.tcloud-sidebar-primary-action button{height:40px!important;border-radius:6px!important;background:var(--color-app-surface-raised)!important;box-shadow:none!important;border-color:var(--color-app-border)!important}.tcloud-sidebar-primary-action button:hover{transform:none!important;border-color:var(--color-app-accent)!important}
+.tcloud-explorer-nav-group{padding:6px 10px 10px!important}.tcloud-explorer-nav-item{min-height:36px!important;border-radius:5px!important;padding-inline:10px!important}.tcloud-explorer-nav-item.is-active{background:var(--color-app-accent-soft)!important;color:#c4b5fd!important}
+.tcloud-device-root-card,.tcloud-home-locations>button,.tcloud-quick-access,.tcloud-favorite-strip,.tcloud-all-files-section,.tcloud-file-card,.tcloud-explorer-file-card,.tcloud-empty-state,.tcloud-explorer-empty-state{border-radius:8px!important;background-image:none!important;box-shadow:none!important}
+.tcloud-drive-home{padding:20px 22px 36px!important;gap:12px!important}.tcloud-drive-home-header{min-height:108px!important;padding:20px 22px!important;border-radius:8px!important;background:var(--color-app-surface)!important;box-shadow:none!important}.tcloud-drive-home-header h2{font-size:26px!important}.tcloud-explorer-topbar,.tcloud-explorer-header{background:rgb(14 16 22/.82)!important;backdrop-filter:blur(16px) saturate(120%)}.tcloud-explorer-content{padding:16px 20px 24px!important}.tcloud-settings-modal,.tcloud-settings-shell{border-radius:8px!important;box-shadow:0 18px 55px rgb(0 0 0/.32)!important}
 
 /* ============================================================
    TCloud 8.0 â€” Advanced Center
@@ -8110,7 +8176,7 @@ body,
    Explorer e reduz a area desperdicada por cards sem miniatura.
    ============================================================ */
 
-/* InÃ­cio: menos dashboard, mais navegaÃ§Ã£o. */
+/* Início: menos dashboard, mais navegaÃ§Ã£o. */
 .tcloud-drive-home {
   padding: 12px 18px 18px !important;
 }
@@ -8201,7 +8267,7 @@ body,
   min-height: 190px !important;
   padding-top: 5px !important;
 }
-/* A tela InÃ­cio usa view small; sem thumbnail o item deixa de parecer um card de galeria vazio. */
+/* A tela Início usa view small; sem thumbnail o item deixa de parecer um card de galeria vazio. */
 .tcloud-all-files-section .tcloud-file-card-small {
   border-color: transparent !important;
   background: transparent !important;
@@ -8412,7 +8478,7 @@ body,
 
 /* TCLOUD 13.0.15 - INTERFACE 2.1 FINAL POLISH
    Acabamento visual da interface estilo Explorer.
-   Somente apresentaÃ§Ã£o: nenhuma regra de sincronizaÃ§Ã£o Ã© alterada.
+   Somente apresentaÃ§Ã£o: nenhuma regra de sincronização Ã© alterada.
    ============================================================ */
 
 /* Sidebar: um pouco mais estreita e densa. */
@@ -8522,7 +8588,7 @@ body,
 }
 
 
-/* InÃ­cio: mais prÃ³ximo de uma Ã¡rea de arquivos do que de um dashboard. */
+/* Início: mais prÃ³ximo de uma Ã¡rea de arquivos do que de um dashboard. */
 .tcloud-drive-home {
     padding: 10px 16px 16px !important;
 }
@@ -8739,7 +8805,7 @@ body,
    Recupera legibilidade sem voltar ao visual pesado de cards.
    ============================================================ */
 
-/* CabeÃ§alho da tela InÃ­cio um pouco mais legÃ­vel. */
+/* CabeÃ§alho da tela Início um pouco mais legÃ­vel. */
 .tcloud-home-compact-header {
     min-height: 40px !important;
 }
@@ -8782,7 +8848,7 @@ body,
 }
 
 
-/* Recentes: mais espaÃ§o para nomes. */
+/* Recentes: mais espaço para nomes. */
 .tcloud-quick-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
     gap: 6px !important;
@@ -8848,7 +8914,7 @@ body,
 }
 
 
-/* Mais espaÃ§o Ãºtil vertical para arquivos. */
+/* Mais espaço Ãºtil vertical para arquivos. */
 .tcloud-all-files-section {
     min-height: 220px !important;
 }
@@ -8891,3 +8957,954 @@ body,
 .tcloud-duplicate-file strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.66rem;color:var(--color-app-text)}
 .tcloud-duplicate-file small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.52rem;color:var(--color-app-text-secondary)}
 
+
+
+/* TCLOUD DESIGN SYSTEM 1.0 - CROSS PLATFORM ALIGNMENT V1 */
+:root:not(.light) {
+  --color-app-canvas: var(--tc-bg);
+  --color-app-sidebar: var(--tc-surface);
+  --color-app-surface: var(--tc-surface);
+  --color-app-surface-raised: var(--tc-surface-raised);
+  --color-app-surface-sunken: var(--tc-bg);
+
+  --color-app-accent: var(--tc-primary);
+  --color-app-accent-hover: var(--tc-primary-hover);
+  --color-app-accent-soft: var(--tc-primary-soft);
+  --color-app-accent-contrast: #ffffff;
+
+  --color-app-text: var(--tc-text);
+  --color-app-text-secondary: var(--tc-text-secondary);
+  --color-app-text-tertiary: var(--tc-text-muted);
+
+  --color-app-border-subtle:
+    color-mix(in srgb, var(--tc-border) 55%, transparent);
+  --color-app-border: var(--tc-border);
+  --color-app-border-strong: var(--tc-border-strong);
+
+  --color-app-hover:
+    color-mix(in srgb, var(--tc-surface-raised) 72%, transparent);
+  --color-app-selected: var(--tc-primary-soft);
+
+  --color-app-success: var(--tc-success);
+  --color-app-warning: var(--tc-warning);
+  --color-app-danger: var(--tc-danger);
+  --color-app-info: var(--tc-info);
+
+  --tcloud-explorer-bg: var(--tc-bg);
+  --tcloud-explorer-sidebar: var(--tc-surface);
+  --tcloud-explorer-surface: var(--tc-surface-soft);
+  --tcloud-explorer-hover: var(--tc-surface-raised);
+  --tcloud-explorer-selected:
+    color-mix(in srgb, var(--tc-primary) 17%, var(--tc-surface));
+  --tcloud-explorer-border: var(--tc-border);
+
+  --tcloud-brand-1: var(--tc-primary-hover);
+  --tcloud-brand-2: var(--tc-primary);
+  --tcloud-brand-3: #2563eb;
+}
+
+:root.light {
+  --color-app-accent: #2563eb;
+  --color-app-accent-hover: #1d4ed8;
+  --color-app-accent-soft: rgb(37 99 235 / .11);
+  --color-app-selected: rgb(37 99 235 / .10);
+
+  --tcloud-brand-1: #60a5fa;
+  --tcloud-brand-2: #2563eb;
+  --tcloud-brand-3: #1d4ed8;
+}
+
+.tcloud-explorer-sidebar:not(.is-collapsed) {
+  width: var(--tc-sidebar-width) !important;
+}
+
+.tcloud-explorer-brand {
+  min-height: var(--tc-topbar-height);
+}
+
+.tcloud-explorer-command {
+  min-height: var(--tc-control-height);
+  border-radius: var(--tc-radius-sm);
+}
+
+.tcloud-explorer-command.is-primary-action {
+  background: var(--tc-primary);
+  color: #fff;
+}
+
+.tcloud-explorer-command.is-primary-action:hover {
+  background: var(--tc-primary-hover);
+}
+
+.tcloud-explorer-search input {
+  border-radius: var(--tc-radius-md);
+}
+
+.tcloud-explorer-nav-item.is-active,
+.tcloud-explorer-folder-row.is-active {
+  color: var(--tc-text);
+}
+
+.tcloud-explorer-nav-item.is-active::before,
+.tcloud-explorer-folder-row.is-active::before {
+  background: var(--tc-primary);
+}
+
+/* TCLOUD_UX_80_SIMPLE_WORKSPACES */
+.tcloud-duplicates-workspace{min-height:100%;padding:16px 20px 48px;overflow:auto}
+.tcloud-duplicates-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid var(--color-app-border);border-radius:12px;background:var(--color-app-surface)}
+.tcloud-duplicates-heading h2{margin:0;font-size:17px;font-weight:700}.tcloud-duplicates-heading p{margin:3px 0 0;color:var(--color-app-text-secondary);font-size:12px}
+.tcloud-utility-primary{min-height:34px;padding:0 13px;border:1px solid color-mix(in srgb,var(--color-app-accent) 55%,var(--color-app-border));border-radius:8px;background:color-mix(in srgb,var(--color-app-accent) 14%,var(--color-app-surface));color:var(--color-app-text);font-weight:600}
+.tcloud-duplicates-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}.tcloud-duplicates-metrics>div{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--color-app-border);border-radius:10px;background:var(--color-app-surface)}
+.tcloud-duplicates-metrics span,.tcloud-utility-empty span,.tcloud-duplicate-card span{color:var(--color-app-text-secondary);font-size:11px}.tcloud-duplicates-metrics strong{font-size:18px}
+.tcloud-utility-empty{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px dashed var(--color-app-border);border-radius:12px;text-align:center}
+.tcloud-duplicates-list{display:grid;gap:8px}.tcloud-duplicate-card{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;padding:12px 14px;border:1px solid var(--color-app-border);border-radius:10px;background:var(--color-app-surface)}
+.tcloud-duplicate-card>div:first-child{display:flex;flex-direction:column;gap:3px}.tcloud-duplicate-files{display:flex;flex-wrap:wrap;gap:5px 10px;min-width:0}.tcloud-duplicate-files span{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:850px){.tcloud-duplicates-metrics,.tcloud-duplicate-card{grid-template-columns:1fr}}
+
+/* TCLOUD_RC_131_UI_FINAL */
+.tcloud-duplicate-card{grid-template-columns:minmax(150px,220px) minmax(0,1fr) auto;align-items:center}
+.tcloud-duplicate-clean{min-height:32px;padding:0 11px;border:1px solid var(--color-app-border);border-radius:8px;background:transparent;color:var(--color-app-text-secondary);font-size:11px;font-weight:600;white-space:nowrap}
+.tcloud-duplicate-clean:hover{border-color:color-mix(in srgb,var(--color-app-accent) 45%,var(--color-app-border));color:var(--color-app-text)}
+.tcloud-duplicate-clean:disabled{opacity:.55}
+.tcloud-terminal-attention{display:inline-flex;align-items:center;min-height:28px;padding:0 9px;border:1px solid color-mix(in srgb,var(--color-app-danger) 35%,var(--color-app-border));border-radius:7px;background:color-mix(in srgb,var(--color-app-danger) 8%,transparent);color:var(--color-app-text-secondary);font-size:10px;font-weight:600;white-space:nowrap}
+@media(max-width:900px){.tcloud-duplicate-card{grid-template-columns:1fr}.tcloud-duplicate-clean{justify-self:start}}
+
+/* TCLOUD_SIDEBAR_SCROLL_82 */
+.tcloud-explorer-sidebar:not(.is-collapsed) {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}
+
+.tcloud-explorer-sidebar:not(.is-collapsed) > .tcloud-explorer-brand {
+    flex: 0 0 auto !important;
+}
+
+.tcloud-explorer-sidebar:not(.is-collapsed) > .tcloud-explorer-sidebar-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain !important;
+    scrollbar-gutter: stable !important;
+    scrollbar-width: thin !important;
+}
+
+.tcloud-explorer-sidebar:not(.is-collapsed) > .tcloud-explorer-sidebar-footer {
+    flex: 0 0 auto !important;
+}
+
+.tcloud-explorer-sidebar-scroll::-webkit-scrollbar {
+    width: 9px;
+}
+
+.tcloud-explorer-sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tcloud-explorer-sidebar-scroll::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-app-text-tertiary) 42%, transparent);
+    background-clip: padding-box;
+}
+
+.tcloud-explorer-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-app-text-secondary) 62%, transparent);
+    background-clip: padding-box;
+}
+
+/* TCLOUD_ECOSYSTEM_BRAND_200_BEGIN
+   Identidade oficial TCloud 2.0
+   Light first + dark mode
+*/
+:root,
+html[data-tcloud-theme="light"] {
+  --tc-marinho: #17243A;
+  --tc-terracota: #C36B4C;
+  --tc-salvia: #82917F;
+  --tc-milho: #E6C46A;
+  --tc-marfim: #F6F1E8;
+
+  --tc-bg: #F6F1E8;
+  --tc-surface: #FFFCF7;
+  --tc-surface-2: #F1ECE3;
+  --tc-text: #17243A;
+  --tc-text-muted: #657083;
+  --tc-border: #DDD6CC;
+  --tc-primary: #C36B4C;
+  --tc-primary-contrast: #FFF9F4;
+  --tc-success: #82917F;
+  --tc-warning: #E6C46A;
+  --tc-shadow: 0 10px 28px rgba(23, 36, 58, .055);
+
+  color-scheme: light;
+}
+
+html[data-tcloud-theme="dark"] {
+  --tc-bg: #0E1626;
+  --tc-surface: #1A2130;
+  --tc-surface-2: #222A36;
+  --tc-text: #E7E9EC;
+  --tc-text-muted: #AAB2BF;
+  --tc-border: #2E3644;
+  --tc-primary: #D87A58;
+  --tc-primary-contrast: #FFF8F3;
+  --tc-success: #93A78E;
+  --tc-warning: #E6C46A;
+  --tc-shadow: 0 12px 30px rgba(0, 0, 0, .22);
+
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  background: var(--tc-bg) !important;
+  color: var(--tc-text) !important;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif !important;
+}
+
+h1,
+h2,
+h3,
+.tcloud-page-title,
+.tc-serif-title {
+  font-family: "Fraunces", Georgia, "Times New Roman", serif !important;
+  color: var(--tc-text) !important;
+  letter-spacing: -.015em;
+}
+
+button,
+input,
+select,
+textarea,
+[role="button"] {
+  border-color: var(--tc-border);
+}
+
+button {
+  border-radius: 10px !important;
+}
+
+input,
+select,
+textarea {
+  background: var(--tc-surface) !important;
+  color: var(--tc-text) !important;
+}
+
+.tcloud-sidebar,
+[class*="sidebar"],
+[class*="Sidebar"] {
+  background: var(--tc-surface) !important;
+  border-color: var(--tc-border) !important;
+}
+
+[class*="card"],
+[class*="Card"],
+[class*="panel"],
+[class*="Panel"],
+[class*="modal"],
+[class*="Modal"] {
+  border-color: var(--tc-border) !important;
+}
+
+.tc-brand-primary,
+button.primary,
+button[class*="primary"],
+[class*="primaryButton"] {
+  background: var(--tc-primary) !important;
+  color: var(--tc-primary-contrast) !important;
+  border-color: var(--tc-primary) !important;
+}
+
+.tc-brand-success {
+  color: var(--tc-success) !important;
+}
+
+.tc-theme-setting {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tc-theme-setting button {
+  background: var(--tc-surface);
+  color: var(--tc-text);
+  border: 1px solid var(--tc-border);
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.tc-theme-setting button[aria-pressed="true"] {
+  color: var(--tc-primary);
+  border-color: var(--tc-primary);
+  background: color-mix(in srgb, var(--tc-primary) 9%, var(--tc-surface));
+}
+
+/* TCLOUD_ECOSYSTEM_BRAND_200_END */
+
+/* TCLOUD_DESKTOP_VISUAL_300_BEGIN
+   TCloud Desktop Visual 3.0
+   A interface Explorer ativa passa a usar a identidade oficial.
+*/
+
+/* ============================================================
+   TOKENS COMPATIVEIS COM A INTERFACE LEGADA
+   ============================================================ */
+
+:root,
+:root.light,
+html[data-tcloud-theme="light"] {
+  --tc-marfim: #F6F1E8;
+  --tc-marinho: #17243A;
+  --tc-terracota: #C36B4C;
+  --tc-salvia: #82917F;
+  --tc-milho: #E6C46A;
+
+  --tc-bg: #F6F1E8;
+  --tc-surface: #FFFDFC;
+  --tc-surface-2: #F1EAE0;
+  --tc-text: #17243A;
+  --tc-text-muted: #687181;
+  --tc-border: #DDD5CA;
+  --tc-primary: #C36B4C;
+  --tc-primary-contrast: #FFF9F5;
+  --tc-success: #82917F;
+  --tc-warning: #B79537;
+
+  --color-app-bg: #F6F1E8 !important;
+  --color-app-surface: #FFFDFC !important;
+  --color-app-surface-raised: #FFFFFF !important;
+  --color-app-surface-hover: #F1EAE0 !important;
+  --color-app-border: #DDD5CA !important;
+  --color-app-border-subtle: #E8E0D6 !important;
+  --color-app-text: #17243A !important;
+  --color-app-text-secondary: #586375 !important;
+  --color-app-text-tertiary: #7D8490 !important;
+  --color-app-accent: #C36B4C !important;
+
+  --tcloud-explorer-bg: #F6F1E8 !important;
+  --tcloud-explorer-sidebar: #EFE8DD !important;
+  --tcloud-explorer-surface: #FFFDFC !important;
+  --tcloud-explorer-hover: #E9DFD3 !important;
+  --tcloud-explorer-selected: #F3DDD4 !important;
+  --tcloud-explorer-border: #DDD5CA !important;
+
+  color-scheme: light;
+}
+
+:root.dark,
+html.dark,
+html[data-tcloud-theme="dark"] {
+  --tc-bg: #0E1626;
+  --tc-surface: #1A2130;
+  --tc-surface-2: #222A36;
+  --tc-text: #E7E9EC;
+  --tc-text-muted: #AAB2BF;
+  --tc-border: #2E3644;
+  --tc-primary: #D87A58;
+  --tc-primary-contrast: #FFF8F3;
+  --tc-success: #93A78E;
+  --tc-warning: #E6C46A;
+
+  --color-app-bg: #0E1626 !important;
+  --color-app-surface: #1A2130 !important;
+  --color-app-surface-raised: #222A36 !important;
+  --color-app-surface-hover: #27303E !important;
+  --color-app-border: #2E3644 !important;
+  --color-app-border-subtle: #26303D !important;
+  --color-app-text: #E7E9EC !important;
+  --color-app-text-secondary: #BEC5CF !important;
+  --color-app-text-tertiary: #8E99A8 !important;
+  --color-app-accent: #D87A58 !important;
+
+  --tcloud-explorer-bg: #0E1626 !important;
+  --tcloud-explorer-sidebar: #131C2B !important;
+  --tcloud-explorer-surface: #1A2130 !important;
+  --tcloud-explorer-hover: #222C3B !important;
+  --tcloud-explorer-selected: #342D2E !important;
+  --tcloud-explorer-border: #2E3644 !important;
+
+  color-scheme: dark;
+}
+
+/* Default para builds antigos que ainda nao colocam classe/atributo de tema. */
+:root:not(.light):not(.dark):not([data-tcloud-theme]) {
+  --color-app-bg: #0E1626 !important;
+  --color-app-surface: #1A2130 !important;
+  --color-app-surface-raised: #222A36 !important;
+  --color-app-surface-hover: #27303E !important;
+  --color-app-border: #2E3644 !important;
+  --color-app-border-subtle: #26303D !important;
+  --color-app-text: #E7E9EC !important;
+  --color-app-text-secondary: #BEC5CF !important;
+  --color-app-text-tertiary: #8E99A8 !important;
+  --color-app-accent: #D87A58 !important;
+  --tcloud-explorer-bg: #0E1626 !important;
+  --tcloud-explorer-sidebar: #131C2B !important;
+  --tcloud-explorer-surface: #1A2130 !important;
+  --tcloud-explorer-hover: #222C3B !important;
+  --tcloud-explorer-selected: #342D2E !important;
+  --tcloud-explorer-border: #2E3644 !important;
+}
+
+/* ============================================================
+   ESTRUTURA
+   ============================================================ */
+
+html,
+body,
+#root,
+.tcloud-desktop-shell,
+.tcloud-main-pane {
+  background: var(--tcloud-explorer-bg) !important;
+  color: var(--color-app-text) !important;
+}
+
+html,
+body,
+#root {
+  font-family: "Segoe UI Variable Text", "Segoe UI Variable",
+    "Segoe UI", system-ui, -apple-system, sans-serif !important;
+}
+
+.tcloud-desktop-shell {
+  letter-spacing: 0;
+}
+
+.tcloud-main-pane {
+  min-width: 0;
+}
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+
+.tcloud-explorer-sidebar {
+  background: var(--tcloud-explorer-sidebar) !important;
+  border-right: 1px solid var(--tcloud-explorer-border) !important;
+  box-shadow: none !important;
+}
+
+.tcloud-explorer-brand {
+  min-height: 58px !important;
+  height: 58px !important;
+  padding-inline: 14px 10px !important;
+  border-bottom: 1px solid var(--tcloud-explorer-border) !important;
+  background: transparent !important;
+}
+
+.tcloud-explorer-brand img {
+  width: 30px !important;
+  height: 30px !important;
+  filter: none !important;
+}
+
+.tcloud-explorer-brand strong {
+  font-size: 15px !important;
+  line-height: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: -.01em !important;
+  color: var(--color-app-text) !important;
+}
+
+.tcloud-explorer-brand span {
+  margin-top: 2px !important;
+  color: var(--color-app-text-tertiary) !important;
+  font-size: 9px !important;
+  letter-spacing: .08em !important;
+  text-transform: none !important;
+}
+
+.tcloud-explorer-sidebar-scroll {
+  padding: 12px 9px 14px !important;
+}
+
+.tcloud-explorer-section {
+  margin-top: 18px !important;
+}
+
+.tcloud-explorer-section-title {
+  height: 26px !important;
+  padding-inline: 8px !important;
+}
+
+.tcloud-explorer-section-title > span {
+  color: var(--color-app-text-tertiary) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: .08em !important;
+}
+
+.tcloud-explorer-nav-item,
+.tcloud-explorer-folder-row,
+.tcloud-explorer-empty-row,
+.tcloud-explorer-footer-row,
+.tcloud-explorer-tree-main {
+  min-height: 36px !important;
+  height: 36px !important;
+  padding-inline: 10px !important;
+  gap: 10px !important;
+  border-radius: 9px !important;
+  color: var(--color-app-text-secondary) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease !important;
+}
+
+.tcloud-explorer-nav-item:hover,
+.tcloud-explorer-folder-row:hover,
+.tcloud-explorer-empty-row:hover,
+.tcloud-explorer-footer-row:hover,
+.tcloud-explorer-tree-main:hover {
+  background: var(--tcloud-explorer-hover) !important;
+  color: var(--color-app-text) !important;
+}
+
+.tcloud-explorer-nav-item.is-active,
+.tcloud-explorer-folder-row.is-active,
+.tcloud-explorer-tree-main.is-active {
+  background: color-mix(in srgb, var(--color-app-accent) 15%, var(--tcloud-explorer-sidebar)) !important;
+  color: var(--color-app-text) !important;
+  font-weight: 650 !important;
+}
+
+.tcloud-explorer-nav-item.is-active::before,
+.tcloud-explorer-folder-row.is-active::before {
+  left: 1px !important;
+  top: 8px !important;
+  bottom: 8px !important;
+  width: 3px !important;
+  border-radius: 99px !important;
+  background: var(--color-app-accent) !important;
+  box-shadow: none !important;
+}
+
+.tcloud-explorer-nav-item svg,
+.tcloud-explorer-folder-row svg,
+.tcloud-explorer-tree-main svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.tcloud-explorer-nav-item.is-active svg,
+.tcloud-explorer-folder-row.is-active svg,
+.tcloud-explorer-tree-main.is-active svg {
+  color: var(--color-app-accent) !important;
+}
+
+.tcloud-explorer-nav-badge {
+  min-width: 21px !important;
+  height: 19px !important;
+  padding-inline: 6px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--color-app-accent) 14%, transparent) !important;
+  color: var(--color-app-accent) !important;
+  font-weight: 700 !important;
+}
+
+.tcloud-explorer-nav-badge.is-danger {
+  background: rgb(201 77 84 / .15) !important;
+  color: #E37C80 !important;
+}
+
+.tcloud-explorer-sidebar-footer {
+  padding: 9px !important;
+  border-top: 1px solid var(--tcloud-explorer-border) !important;
+  background: var(--tcloud-explorer-sidebar) !important;
+}
+
+/* ============================================================
+   CABECALHO / LOCALIZACAO / BUSCA
+   ============================================================ */
+
+.tcloud-explorer-header {
+  border-bottom: 1px solid var(--tcloud-explorer-border) !important;
+  background: var(--tcloud-explorer-surface) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.tcloud-explorer-location-row {
+  min-height: 58px !important;
+  padding: 10px 16px 8px !important;
+  gap: 10px !important;
+}
+
+.tcloud-explorer-breadcrumb,
+.tcloud-explorer-search {
+  min-height: 38px !important;
+  height: 38px !important;
+  border: 1px solid var(--tcloud-explorer-border) !important;
+  border-radius: 10px !important;
+  background: var(--color-app-surface-raised) !important;
+  color: var(--color-app-text) !important;
+  box-shadow: none !important;
+}
+
+.tcloud-explorer-breadcrumb:focus-within,
+.tcloud-explorer-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-app-accent) 72%, var(--tcloud-explorer-border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-app-accent) 11%, transparent) !important;
+}
+
+.tcloud-explorer-search input,
+.tcloud-explorer-breadcrumb input {
+  color: var(--color-app-text) !important;
+  background: transparent !important;
+}
+
+.tcloud-explorer-search input::placeholder {
+  color: var(--color-app-text-tertiary) !important;
+}
+
+/* ============================================================
+   BARRA DE COMANDOS
+   ============================================================ */
+
+.tcloud-explorer-command-bar,
+.tcloud-explorer-commands {
+  min-height: 50px !important;
+  padding: 7px 16px !important;
+  gap: 7px !important;
+  border-bottom: 1px solid var(--tcloud-explorer-border) !important;
+  background: var(--tcloud-explorer-surface) !important;
+}
+
+.tcloud-explorer-command {
+  min-height: 34px !important;
+  height: 34px !important;
+  padding-inline: 11px !important;
+  gap: 7px !important;
+  border: 1px solid transparent !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: var(--color-app-text-secondary) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+.tcloud-explorer-command:hover:not(:disabled) {
+  border-color: var(--tcloud-explorer-border) !important;
+  background: var(--tcloud-explorer-hover) !important;
+  color: var(--color-app-text) !important;
+}
+
+.tcloud-explorer-command svg {
+  color: var(--color-app-accent) !important;
+}
+
+.tcloud-explorer-command.is-primary,
+.tcloud-explorer-command[data-primary="true"],
+.tcloud-primary-action {
+  border-color: var(--color-app-accent) !important;
+  background: var(--color-app-accent) !important;
+  color: #FFF8F3 !important;
+}
+
+.tcloud-explorer-command.is-primary svg,
+.tcloud-explorer-command[data-primary="true"] svg,
+.tcloud-primary-action svg {
+  color: #FFF8F3 !important;
+}
+
+/* ============================================================
+   CONTEUDO / FILE EXPLORER
+   ============================================================ */
+
+.tcloud-explorer-content,
+.tcloud-file-explorer,
+.tcloud-dashboard-content,
+.tcloud-dashboard-main,
+.tcloud-explorer-workspace {
+  background: var(--tcloud-explorer-bg) !important;
+  color: var(--color-app-text) !important;
+}
+
+.tcloud-explorer-content {
+  padding: 14px 18px 18px !important;
+}
+
+.tcloud-file-card,
+.tcloud-explorer-file-card,
+[class*="file-card"],
+[class*="FileCard"] {
+  border-color: var(--tcloud-explorer-border) !important;
+  background: var(--color-app-surface) !important;
+  box-shadow: none !important;
+}
+
+.tcloud-file-card:hover,
+.tcloud-explorer-file-card:hover,
+[class*="file-card"]:hover {
+  border-color: color-mix(in srgb, var(--color-app-accent) 40%, var(--tcloud-explorer-border)) !important;
+  background: var(--color-app-surface-raised) !important;
+}
+
+.tcloud-file-card.is-selected,
+.tcloud-explorer-file-card.is-selected,
+[class*="file-card"].is-selected {
+  border-color: var(--color-app-accent) !important;
+  background: color-mix(in srgb, var(--color-app-accent) 8%, var(--color-app-surface)) !important;
+}
+
+.tcloud-explorer-empty-state,
+.tcloud-empty-state {
+  color: var(--color-app-text-secondary) !important;
+}
+
+/* ============================================================
+   STATUS BAR
+   ============================================================ */
+
+.tcloud-explorer-status-bar,
+.tcloud-explorer-statusbar {
+  border-top: 1px solid var(--tcloud-explorer-border) !important;
+  background: var(--tcloud-explorer-surface) !important;
+  color: var(--color-app-text-tertiary) !important;
+}
+
+/* ============================================================
+   MENUS / MODAIS / CONFIGURACOES
+   ============================================================ */
+
+.tcloud-context-menu,
+.tcloud-explorer-context-menu,
+[class*="context-menu"],
+[class*="ContextMenu"],
+[class*="modal"],
+[class*="Modal"] {
+  border-color: var(--tcloud-explorer-border) !important;
+}
+
+.tcloud-context-menu,
+.tcloud-explorer-context-menu,
+[class*="context-menu"],
+[class*="ContextMenu"] {
+  background: var(--color-app-surface-raised) !important;
+  color: var(--color-app-text) !important;
+  box-shadow: 0 18px 44px rgb(0 0 0 / .18) !important;
+}
+
+[class*="modal"],
+[class*="Modal"] {
+  color: var(--color-app-text);
+}
+
+input,
+select,
+textarea {
+  border-color: var(--tcloud-explorer-border) !important;
+  background: var(--color-app-surface-raised) !important;
+  color: var(--color-app-text) !important;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* A cor azul antiga deixa de ser identidade principal mesmo em utilitarios Tailwind. */
+.text-app-accent {
+  color: var(--color-app-accent) !important;
+}
+
+.bg-app-accent,
+.bg-app-accent\/90 {
+  background-color: var(--color-app-accent) !important;
+}
+
+.border-app-accent {
+  border-color: var(--color-app-accent) !important;
+}
+
+/* Status positivos continuam salvia, aviso milho. */
+.tcloud-status-success,
+.tcloud-sync-ok,
+[data-status="success"] {
+  color: var(--tc-success) !important;
+}
+
+.tcloud-status-warning,
+[data-status="warning"] {
+  color: var(--tc-warning) !important;
+}
+
+/* Sem gradiente SaaS/neon no shell principal. */
+.tcloud-desktop-shell,
+.tcloud-explorer-sidebar,
+.tcloud-explorer-header,
+.tcloud-explorer-command-bar,
+.tcloud-explorer-commands {
+  background-image: none !important;
+}
+
+/* Scrollbars discretas. */
+.tcloud-desktop-shell * {
+  scrollbar-color:
+    color-mix(in srgb, var(--color-app-text-tertiary) 38%, transparent)
+    transparent;
+}
+
+.tcloud-desktop-shell *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.tcloud-desktop-shell *::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background:
+    color-mix(in srgb, var(--color-app-text-tertiary) 38%, transparent);
+  background-clip: padding-box;
+}
+
+/* TCLOUD_DESKTOP_VISUAL_300_END */
+
+/* ============================================================
+   TCLOUD WORKSPACE UI 1.0 — curated file-manager composition
+   A final, deliberately small normalization layer. It replaces the visual
+   effects accumulated by older releases without changing application logic.
+   ============================================================ */
+.desktop-shell,
+.tcloud-desktop-shell {
+  --tc-workspace-radius: 12px;
+  --tc-workspace-control: 36px;
+  --tc-workspace-focus: 0 0 0 3px color-mix(in srgb, var(--color-app-accent) 18%, transparent);
+  font-family: Inter, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: normal;
+}
+
+.tcloud-explorer-main,
+.tcloud-explorer-workspace {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tcloud-explorer-header {
+  position: relative;
+  z-index: 20;
+}
+
+.tcloud-explorer-location-row {
+  display: grid !important;
+  grid-template-columns: auto minmax(220px, 1fr) minmax(240px, 460px) auto;
+  align-items: center;
+}
+
+.tcloud-explorer-breadcrumb,
+.tcloud-explorer-search,
+.quiet-control {
+  border-radius: 10px !important;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.tcloud-explorer-search:focus-within,
+.tcloud-explorer-breadcrumb:focus-within,
+.quiet-control:focus-visible {
+  outline: 0;
+  box-shadow: var(--tc-workspace-focus) !important;
+}
+
+.tcloud-explorer-command-bar,
+.tcloud-explorer-commands {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tcloud-explorer-command-bar::-webkit-scrollbar,
+.tcloud-explorer-commands::-webkit-scrollbar { display: none; }
+
+.tcloud-explorer-content {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.tcloud-file-grid,
+.tcloud-explorer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px !important;
+}
+
+.tcloud-file-card,
+.tcloud-explorer-file-card {
+  overflow: hidden;
+  border-radius: var(--tc-workspace-radius) !important;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+.tcloud-file-card:hover,
+.tcloud-explorer-file-card:hover { transform: translateY(-1px); }
+
+.tcloud-file-row,
+.tcloud-explorer-file-row {
+  min-height: 44px;
+  border-radius: 8px;
+}
+
+.tcloud-empty-state,
+.tcloud-explorer-empty-state,
+.tcloud-workspace-empty,
+.tcloud-utility-empty {
+  width: min(460px, calc(100% - 32px));
+  min-height: 220px;
+  margin: 32px auto;
+  padding: 28px;
+  border: 1px dashed var(--color-app-border) !important;
+  border-radius: 16px !important;
+  background: color-mix(in srgb, var(--color-app-surface) 72%, transparent) !important;
+}
+
+.tcloud-explorer-statusbar,
+.tcloud-explorer-status-bar {
+  min-height: 34px;
+  padding-inline: 14px;
+}
+
+.tcloud-settings-modal,
+.tcloud-settings-shell {
+  max-width: min(960px, calc(100vw - 28px));
+  max-height: min(820px, calc(100dvh - 28px));
+  overflow: hidden;
+  border-radius: 16px !important;
+}
+.tcloud-settings-content,
+.tcloud-settings-main { min-width: 0; overflow-y: auto !important; scrollbar-gutter: stable; }
+
+@media (max-width: 980px) {
+  .tcloud-explorer-location-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .tcloud-explorer-search { grid-column: 1 / -1; width: 100% !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-shell *, .tcloud-desktop-shell * {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* Final Fluent normalization must remain last to supersede legacy releases. */
+.tcloud-explorer-sidebar:not(.is-collapsed){width:244px!important;background:rgb(14 16 22/.94)!important;background-image:none!important;backdrop-filter:blur(18px) saturate(120%)}
+.tcloud-explorer-brand{min-height:58px!important;padding-inline:14px!important}.tcloud-explorer-brand img{border-radius:6px}.tcloud-sidebar-primary-action{padding:10px 12px 8px!important}.tcloud-sidebar-primary-action button{height:40px!important;border-radius:6px!important;background:var(--color-app-surface-raised)!important;background-image:none!important;box-shadow:none!important;border-color:var(--color-app-border)!important}.tcloud-sidebar-primary-action button:hover{transform:none!important;border-color:var(--color-app-accent)!important}.tcloud-explorer-nav-group{padding:6px 10px 10px!important}.tcloud-explorer-nav-item{min-height:36px!important;border-radius:5px!important;padding-inline:10px!important}.tcloud-explorer-nav-item.is-active{background:var(--color-app-accent-soft)!important;color:#c4b5fd!important}
+.tcloud-device-root-card,.tcloud-home-locations>button,.tcloud-quick-access,.tcloud-favorite-strip,.tcloud-all-files-section,.tcloud-file-card,.tcloud-explorer-file-card,.tcloud-empty-state,.tcloud-explorer-empty-state{border-radius:8px!important;background-image:none!important;box-shadow:none!important}.tcloud-drive-home{padding:20px 22px 36px!important;gap:12px!important}.tcloud-drive-home-header{min-height:108px!important;padding:20px 22px!important;border-radius:8px!important;background:var(--color-app-surface)!important;background-image:none!important;box-shadow:none!important}.tcloud-drive-home-header h2{font-size:26px!important}.tcloud-explorer-topbar,.tcloud-explorer-header{background:rgb(14 16 22/.82)!important;background-image:none!important;backdrop-filter:blur(16px) saturate(120%)}.tcloud-explorer-content{padding:16px 20px 24px!important}.tcloud-settings-modal,.tcloud-settings-shell{border-radius:8px!important;box-shadow:0 18px 55px rgb(0 0 0/.32)!important}
+.tcloud-desktop-recent-carousel{margin:12px 0 14px}.tcloud-desktop-recent-carousel>button{position:relative;width:100%;height:190px;overflow:hidden;padding:0;border:1px solid var(--color-app-border);border-radius:8px;background:#06070a;color:var(--color-app-text)}.tcloud-desktop-recent-carousel>button>span{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transition:opacity 420ms ease}.tcloud-desktop-recent-carousel>button>span.is-active{opacity:1}.tcloud-desktop-recent-carousel img{width:100%;height:100%;object-fit:cover}.tcloud-desktop-recent-carousel>button>span>span{position:absolute;inset:auto 0 0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:34px 14px 12px;background:linear-gradient(transparent,rgb(0 0 0/.82));text-align:left}.tcloud-desktop-recent-carousel strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tcloud-desktop-recent-carousel small{color:#c6c8d0}.tcloud-desktop-recent-carousel>div{display:flex;justify-content:center;gap:5px;padding-top:8px}.tcloud-desktop-recent-carousel>div button{width:18px;height:3px;padding:0;border:0;border-radius:2px;background:#4d505b}.tcloud-desktop-recent-carousel>div button.is-active{width:30px;background:var(--color-app-accent)}

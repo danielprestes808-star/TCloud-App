@@ -131,7 +131,7 @@
     }
 }
 
-/* NÃ£o use zoom pesado durante drag. */
+/* Não use zoom pesado durante drag. */
 .file-card-container:has(.is-drop-target) .tcloud-file-card,
 .file-card-container:active .tcloud-file-card {
     transform: none;
@@ -170,7 +170,7 @@
 
 /*
  * O componente ainda declara width:232 inline.
- * max-width forÃ§a a versÃ£o expandida a ocupar menos espaÃ§o
+ * max-width forÃ§a a versÃ£o expandida a ocupar menos espaço
  * sem alterar a lÃ³gica React da sidebar.
  */
 .tcloud-sidebar.tcloud-explorer-sidebar:not(.is-collapsed) {
@@ -239,7 +239,7 @@
     opacity: .62;
 }
 
-/* menos espaÃ§o na parte inferior */
+/* menos espaço na parte inferior */
 .tcloud-sidebar .mt-auto {
     padding-top: 5px !important;
 }
@@ -348,7 +348,7 @@
 
 /*
  * Footer mais curto:
- * a imagem ganha mais espaÃ§o e o nome nÃ£o ocupa duas linhas.
+ * a imagem ganha mais espaço e o nome nÃ£o ocupa duas linhas.
  */
 .tcloud-file-footer {
     min-height: 39px !important;

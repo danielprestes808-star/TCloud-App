@@ -15,7 +15,9 @@ export async function applyPerformanceProfile(profile: TCloudPerformanceProfile)
   document.body.classList.add('tcloud-fluidity-mode');
   document.documentElement.dataset.tcloudPerformanceProfile = profile;
   window.dispatchEvent(new CustomEvent('tcloud-performance-profile-changed', { detail: { profile, thumbnailConcurrency } }));
-  await setTCloudTransferLimits(profile === 'economy' ? 2 : 4).catch(() => null);
+  // Keep bulk PC backup from becoming artificially serial. Telegram uploads are
+  // still capped by the native worker pool and bandwidth controller.
+  await setTCloudTransferLimits(profile === 'economy' ? 2 : profile === 'performance' ? 8 : 6).catch(() => null);
   return profile;
 }
 

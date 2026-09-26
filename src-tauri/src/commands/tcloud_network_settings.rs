@@ -25,7 +25,7 @@ fn write_setting(conn: &sqlite::Connection, key: &str, value: &str) -> Result<()
         .prepare(
             "INSERT INTO tcloud_settings(key, value)
              VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, key)).map_err(|e| e.to_string())?;
@@ -35,7 +35,9 @@ fn write_setting(conn: &sqlite::Connection, key: &str, value: &str) -> Result<()
 }
 
 pub fn load_network_settings(db: &DbConnection) -> Result<TCloudNetworkSettings, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let economy_mode = read_setting(&conn, "economy_mode")?
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
@@ -70,7 +72,9 @@ pub fn tcloud_set_network_settings(
     upload_limit_bps: u64,
     download_limit_bps: u64,
 ) -> Result<TCloudNetworkSettings, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     write_setting(&conn, "economy_mode", if economy_mode { "1" } else { "0" })?;
     write_setting(&conn, "upload_limit_bps", &upload_limit_bps.to_string())?;

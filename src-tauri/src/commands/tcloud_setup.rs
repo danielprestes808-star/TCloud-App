@@ -24,7 +24,7 @@ fn upsert_setting(conn: &sqlite::Connection, key: &str, value: &str) -> Result<(
         .prepare(
             "INSERT INTO tcloud_settings(key, value)
              VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, key)).map_err(|e| e.to_string())?;
@@ -42,13 +42,13 @@ fn scalar_i64(conn: &sqlite::Connection, sql: &str) -> Result<i64, String> {
 }
 
 #[tauri::command]
-pub fn tcloud_get_setup_state(
-    db: State<'_, DbConnection>,
-) -> Result<TCloudSetupState, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_get_setup_state(db: State<'_, DbConnection>) -> Result<TCloudSetupState, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let folder_count = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_folders WHERE parent_id IS NOT NULL"
+        "SELECT COUNT(*) FROM tcloud_folders WHERE parent_id IS NOT NULL",
     )?;
 
     let mut stmt = conn
@@ -75,7 +75,9 @@ pub fn tcloud_create_default_folders(
     plan: TCloudSetupPlan,
 ) -> Result<Vec<i64>, String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let root_id = {
         let mut stmt = conn
@@ -110,7 +112,7 @@ pub fn tcloud_create_default_folders(
             .prepare(
                 "INSERT INTO tcloud_folders(
                     parent_id, name, path, created_at, updated_at
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)"
+                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
             )
             .map_err(|e| e.to_string())?;
         insert.bind((1, root_id)).map_err(|e| e.to_string())?;
@@ -127,9 +129,9 @@ pub fn tcloud_create_default_folders(
 }
 
 #[tauri::command]
-pub fn tcloud_reset_setup_state(
-    db: State<'_, DbConnection>,
-) -> Result<(), String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_reset_setup_state(db: State<'_, DbConnection>) -> Result<(), String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     upsert_setting(&conn, "setup_completed", "0")
 }

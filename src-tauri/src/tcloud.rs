@@ -47,25 +47,41 @@ pub struct TCloudSyncJob {
 }
 
 #[tauri::command]
-pub fn tcloud_get_storage_overview(db: State<'_, DbConnection>) -> Result<serde_json::Value, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_get_storage_overview(
+    db: State<'_, DbConnection>,
+) -> Result<serde_json::Value, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let files: i64 = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_files")?;
     let bytes: i64 = scalar_i64(&conn, "SELECT COALESCE(SUM(size), 0) FROM tcloud_files")?;
     let folders: i64 = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_folders")?;
-    let pending: i64 = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status IN ('pending','running')")?;
-    Ok(serde_json::json!({"files": files, "bytes": bytes, "folders": folders, "pending_sync": pending}))
+    let pending: i64 = scalar_i64(
+        &conn,
+        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status IN ('pending','running')",
+    )?;
+    Ok(
+        serde_json::json!({"files": files, "bytes": bytes, "folders": folders, "pending_sync": pending}),
+    )
 }
 
 #[tauri::command]
-pub fn tcloud_list_folders(db: State<'_, DbConnection>, parent_id: Option<i64>) -> Result<Vec<TCloudFolder>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_list_folders(
+    db: State<'_, DbConnection>,
+    parent_id: Option<i64>,
+) -> Result<Vec<TCloudFolder>, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let sql = if parent_id.is_some() {
         "SELECT id, parent_id, name, path, telegram_chat_id, created_at, updated_at FROM tcloud_folders WHERE parent_id = ? ORDER BY name COLLATE NOCASE"
     } else {
         "SELECT id, parent_id, name, path, telegram_chat_id, created_at, updated_at FROM tcloud_folders WHERE parent_id IS NULL ORDER BY name COLLATE NOCASE"
     };
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    if let Some(id) = parent_id { stmt.bind((1, id)).map_err(|e| e.to_string())?; }
+    if let Some(id) = parent_id {
+        stmt.bind((1, id)).map_err(|e| e.to_string())?;
+    }
     let mut out = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
         out.push(TCloudFolder {
@@ -82,11 +98,19 @@ pub fn tcloud_list_folders(db: State<'_, DbConnection>, parent_id: Option<i64>) 
 }
 
 #[tauri::command]
-pub fn tcloud_create_folder(db: State<'_, DbConnection>, name: String, parent_id: Option<i64>) -> Result<TCloudFolder, String> {
+pub fn tcloud_create_folder(
+    db: State<'_, DbConnection>,
+    name: String,
+    parent_id: Option<i64>,
+) -> Result<TCloudFolder, String> {
     let name = name.trim().to_string();
-    if name.is_empty() { return Err("Folder name cannot be empty".into()); }
+    if name.is_empty() {
+        return Err("Folder name cannot be empty".into());
+    }
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let parent_path: Option<String> = match parent_id {
         Some(id) => query_string(&conn, "SELECT path FROM tcloud_folders WHERE id = ?", id)?,
         None => None,
@@ -99,7 +123,9 @@ pub fn tcloud_create_folder(db: State<'_, DbConnection>, name: String, parent_id
     let mut stmt = conn.prepare("INSERT INTO tcloud_folders(parent_id,name,path,created_at,updated_at) VALUES(?1,?2,?3,?4,?5)").map_err(|e| e.to_string())?;
     match parent_id {
         Some(id) => stmt.bind((1, id)).map_err(|e| e.to_string())?,
-        None => stmt.bind((1, sqlite::Value::Null)).map_err(|e| e.to_string())?,
+        None => stmt
+            .bind((1, sqlite::Value::Null))
+            .map_err(|e| e.to_string())?,
     }
     stmt.bind((2, name.as_str())).map_err(|e| e.to_string())?;
     stmt.bind((3, path.as_str())).map_err(|e| e.to_string())?;
@@ -107,7 +133,15 @@ pub fn tcloud_create_folder(db: State<'_, DbConnection>, name: String, parent_id
     stmt.bind((5, now)).map_err(|e| e.to_string())?;
     stmt.next().map_err(|e| e.to_string())?;
     let id = crate::db::last_insert_rowid(&conn)?;
-    Ok(TCloudFolder { id, parent_id, name, path, telegram_chat_id: None, created_at: now, updated_at: now })
+    Ok(TCloudFolder {
+        id,
+        parent_id,
+        name,
+        path,
+        telegram_chat_id: None,
+        created_at: now,
+        updated_at: now,
+    })
 }
 
 #[tauri::command]
@@ -149,20 +183,14 @@ pub fn tcloud_enqueue_sync(
                    END,
                    priority DESC,
                    id DESC
-                 LIMIT 1"
+                 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
 
-        existing
-            .bind((1, file_id))
-            .map_err(|e| e.to_string())?;
+        existing.bind((1, file_id)).map_err(|e| e.to_string())?;
 
-        if let sqlite::State::Row =
-            existing.next().map_err(|e| e.to_string())?
-        {
-            let existing_id = existing
-                .read::<i64, _>(0)
-                .map_err(|e| e.to_string())?;
+        if let sqlite::State::Row = existing.next().map_err(|e| e.to_string())? {
+            let existing_id = existing.read::<i64, _>(0).map_err(|e| e.to_string())?;
 
             drop(existing);
 
@@ -172,25 +200,17 @@ pub fn tcloud_enqueue_sync(
                      SET priority=MAX(COALESCE(priority,0),?1),
                          next_attempt_at=NULL,
                          updated_at=?2
-                     WHERE id=?3"
+                     WHERE id=?3",
                 )
                 .map_err(|e| e.to_string())?;
 
-            promote
-                .bind((1, priority))
-                .map_err(|e| e.to_string())?;
+            promote.bind((1, priority)).map_err(|e| e.to_string())?;
 
-            promote
-                .bind((2, now))
-                .map_err(|e| e.to_string())?;
+            promote.bind((2, now)).map_err(|e| e.to_string())?;
 
-            promote
-                .bind((3, existing_id))
-                .map_err(|e| e.to_string())?;
+            promote.bind((3, existing_id)).map_err(|e| e.to_string())?;
 
-            promote
-                .next()
-                .map_err(|e| e.to_string())?;
+            promote.next().map_err(|e| e.to_string())?;
 
             drop(promote);
             drop(conn);
@@ -199,8 +219,7 @@ pub fn tcloud_enqueue_sync(
 
             return Ok(existing_id);
         }
-    }
-    else {
+    } else {
         let mut existing = conn
             .prepare(
                 "SELECT id
@@ -210,24 +229,18 @@ pub fn tcloud_enqueue_sync(
                    AND status IN ('pending','running','paused')
                    AND COALESCE(cancel_requested,0)=0
                  ORDER BY id DESC
-                 LIMIT 1"
+                 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
 
-        existing
-            .bind((1, file_id))
-            .map_err(|e| e.to_string())?;
+        existing.bind((1, file_id)).map_err(|e| e.to_string())?;
 
         existing
             .bind((2, operation.as_str()))
             .map_err(|e| e.to_string())?;
 
-        if let sqlite::State::Row =
-            existing.next().map_err(|e| e.to_string())?
-        {
-            let existing_id = existing
-                .read::<i64, _>(0)
-                .map_err(|e| e.to_string())?;
+        if let sqlite::State::Row = existing.next().map_err(|e| e.to_string())? {
+            let existing_id = existing.read::<i64, _>(0).map_err(|e| e.to_string())?;
 
             drop(existing);
             drop(conn);
@@ -248,23 +261,22 @@ pub fn tcloud_enqueue_sync(
                 updated_at,
                 priority,
                 attempts,
-                next_attempt_at
+                next_attempt_at,
+                bytes_total
              )
-             VALUES(?1,?2,'pending',?3,?3,?4,0,NULL)"
+             VALUES(?1,?2,'pending',?3,?3,?4,0,NULL,
+                    (SELECT MAX(COALESCE(size,0),0) FROM tcloud_files WHERE id=?1))",
         )
         .map_err(|e| e.to_string())?;
 
-    stmt.bind((1, file_id))
-        .map_err(|e| e.to_string())?;
+    stmt.bind((1, file_id)).map_err(|e| e.to_string())?;
 
     stmt.bind((2, operation.as_str()))
         .map_err(|e| e.to_string())?;
 
-    stmt.bind((3, now))
-        .map_err(|e| e.to_string())?;
+    stmt.bind((3, now)).map_err(|e| e.to_string())?;
 
-    stmt.bind((4, priority))
-        .map_err(|e| e.to_string())?;
+    stmt.bind((4, priority)).map_err(|e| e.to_string())?;
 
     stmt.next().map_err(|e| e.to_string())?;
 
@@ -290,7 +302,10 @@ fn query_string(conn: &sqlite::Connection, sql: &str, id: i64) -> Result<Option<
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     stmt.bind((1, id)).map_err(|e| e.to_string())?;
     match stmt.next().map_err(|e| e.to_string())? {
-        sqlite::State::Row => stmt.read::<String, _>(0).map(Some).map_err(|e| e.to_string()),
+        sqlite::State::Row => stmt
+            .read::<String, _>(0)
+            .map(Some)
+            .map_err(|e| e.to_string()),
         _ => Ok(None),
     }
 }

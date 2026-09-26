@@ -253,7 +253,7 @@
                      "color_text":  "Text",
                      "color_subtext":  "Subtext",
                      "revoke":  "Revogar",
-                     "update_available":  "Atualização {{version}} disponível",
+                     "update_available":  "Atualização disponível",
                      "uploading":  "Enviando...",
                      "tab_encryption":  "Criptografia",
                      "encryption_privacy":  "Criptografia e privacidade",

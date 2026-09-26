@@ -63,7 +63,7 @@ export async function registerTCloudAccount(displayName: string, username: strin
   }
   const response = await fetch(`${CORE_URL}/api/v1/onboarding/register`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ displayName, username, deviceName: `TCloud em ${navigator.platform || 'Windows'}`, platform: 'windows', appVersion: '13.0.60' }),
+    body: JSON.stringify({ displayName, username, deviceName: `TCloud em ${navigator.platform || 'Windows'}`, platform: 'windows', appVersion: '13.0.61' }),
   });
   const data = await response.json() as { token?: string; deviceId?: string; message?: string };
   if (!response.ok || !data.token || !data.deviceId) throw new Error(data.message || 'Não foi possível criar sua conta TCloud.');
@@ -93,7 +93,7 @@ export async function pairTCloudAccount(rawCode: string) {
       code,
       deviceName: `TCloud em ${navigator.platform || 'Windows'}`,
       platform: 'windows',
-      appVersion: '13.0.60',
+      appVersion: '13.0.61',
     }),
   });
   const data = await response.json() as { token?: string; deviceId?: string; message?: string };

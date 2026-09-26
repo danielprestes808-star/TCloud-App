@@ -20,13 +20,11 @@ impl BandwidthThrottle {
     pub fn set_transferred(&mut self, bytes: u64) {
         self.transferred = bytes;
         self.started_at = Instant::now()
-            .checked_sub(Duration::from_secs_f64(
-                if self.limit_bps > 0 {
-                    bytes as f64 / self.limit_bps as f64
-                } else {
-                    0.0
-                },
-            ))
+            .checked_sub(Duration::from_secs_f64(if self.limit_bps > 0 {
+                bytes as f64 / self.limit_bps as f64
+            } else {
+                0.0
+            }))
             .unwrap_or_else(Instant::now);
     }
 

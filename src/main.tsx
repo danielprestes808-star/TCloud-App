@@ -1,6 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import { applyTCloudTheme } from "./services/tcloudTheme";
+
+
+// TCLOUD_THEME_BOOTSTRAP_202
+applyTCloudTheme();
+document.documentElement.dataset.density = localStorage.getItem('tcloud:interface-density') === 'compact'
+  ? 'compact'
+  : 'comfortable';
 type BootWindow = Window & { __TCLOUD_BOOT_OK__?: boolean };
 
 function formatBootError(reason: unknown): string {

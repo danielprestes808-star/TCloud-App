@@ -10,9 +10,7 @@ pub struct TCloudCacheStatus {
 }
 
 #[tauri::command]
-pub fn tcloud_get_cache_status(
-    db: State<'_, DbConnection>,
-) -> Result<TCloudCacheStatus, String> {
+pub fn tcloud_get_cache_status(db: State<'_, DbConnection>) -> Result<TCloudCacheStatus, String> {
     Ok(TCloudCacheStatus {
         current_bytes: cache_manager::current_cache_size(db.inner())?,
         limit_bytes: cache_manager::cache_limit_bytes(db.inner())?,
@@ -38,9 +36,7 @@ pub fn tcloud_set_cache_limit(
 }
 
 #[tauri::command]
-pub fn tcloud_cleanup_cache(
-    db: State<'_, DbConnection>,
-) -> Result<TCloudCacheStatus, String> {
+pub fn tcloud_cleanup_cache(db: State<'_, DbConnection>) -> Result<TCloudCacheStatus, String> {
     let current = cache_manager::enforce_cache_limit(db.inner())?;
     let limit = cache_manager::cache_limit_bytes(db.inner())?;
     Ok(TCloudCacheStatus {

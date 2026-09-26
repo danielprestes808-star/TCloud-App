@@ -21,18 +21,19 @@ $legacyMobilePaths = @(
     'src-tauri\src\commands\webdav_settings.rs'
 )
 
-$removed = @()
+$legacyFound = @()
 foreach ($relativePath in $legacyMobilePaths) {
     $fullPath = Join-Path $root $relativePath
     if (Test-Path $fullPath) {
-        Remove-Item -LiteralPath $fullPath -Recurse -Force
-        $removed += $relativePath
+        $legacyFound += $relativePath
     }
 }
 
-if ($removed.Count -gt 0) {
-    Write-Host '[TCloud] Residuos mobile antigos removidos da instalacao desktop:' -ForegroundColor Yellow
-    $removed | ForEach-Object { Write-Host ("  - {0}" -f $_) }
+if ($legacyFound.Count -gt 0) {
+    Write-Host '[TCloud] Falha: residuos mobile antigos encontrados na arvore desktop:' -ForegroundColor Red
+    $legacyFound | ForEach-Object { Write-Host ("  - {0}" -f $_) }
+    Write-Host '[TCloud] A verificacao nao remove arquivos automaticamente.' -ForegroundColor Yellow
+    exit 1
 }
 
 $targets = @(
@@ -51,11 +52,15 @@ foreach ($target in $targets) {
             $_.Extension -in @('.rs', '.ts', '.tsx', '.js', '.cjs', '.json', '.toml')
         }
         if ($files) {
-            $matches += $files | Select-String -Pattern $pattern
+            $matches += $files | Select-String -Pattern $pattern | Where-Object {
+                $_.Line.TrimStart() -notmatch '^(//|#|/\*|\*)'
+            }
         }
     }
     elseif (Test-Path $target -PathType Leaf) {
-        $matches += Select-String -Path $target -Pattern $pattern
+        $matches += Select-String -Path $target -Pattern $pattern | Where-Object {
+            $_.Line.TrimStart() -notmatch '^(//|#|/\*|\*)'
+        }
     }
 }
 

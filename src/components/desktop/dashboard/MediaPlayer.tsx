@@ -5,7 +5,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TelegramFile } from '../../../types';
 import { isVideoFile, isAudioFile } from '../../../utils';
 
-const AdaptiveMediaPlayer = lazy(() => import('./AdaptiveMediaPlayer').then((m) => ({ default: m.AdaptiveMediaPlayer })));
+const AdaptiveMediaPlayer = lazy(() => import('./AdaptiveMediaPlayer').then((mod) => ({ default: mod.AdaptiveMediaPlayer })));
+
 
 interface StreamInfo {
     token: string;
@@ -22,14 +23,15 @@ interface MediaPlayerProps {
     activeFolderId: number | null;
 }
 
-function isMp4Video(name: string): boolean {
-    return name.toLowerCase().endsWith('.mp4');
-}
 
 export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId }: MediaPlayerProps) {
     const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    // TCLOUD_PERF_91_HYBRID_VIDEO
+    const [useAdaptiveFallback, setUseAdaptiveFallback] = useState(false);
+    const nativeVideoReadyRef = useRef(false);
+
 
     const toggleFullscreen = useCallback(async () => {
         try {
@@ -77,8 +79,24 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
 
     const isVideo = isVideoFile(file.name);
     const isAudio = isAudioFile(file.name);
-    const isMp4 = isMp4Video(file.name);
+    const isMp4 = file.name.toLowerCase().endsWith('.mp4');
 
+
+    // TCLOUD_PERF_91_NATIVE_DEADLINE
+    useEffect(() => {
+        nativeVideoReadyRef.current = false;
+        setUseAdaptiveFallback(false);
+
+        if (!isMp4 || !streamUrl) return;
+
+        const timer = window.setTimeout(() => {
+            if (!nativeVideoReadyRef.current) {
+                setUseAdaptiveFallback(true);
+            }
+        }, 2500);
+
+        return () => window.clearTimeout(timer);
+    }, [file.id, isMp4, streamUrl]);
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
@@ -131,14 +149,16 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose, onNext, onPrev, toggleFullscreen]);
 
-    // MP4 files: use adaptive streaming with quality controls + throttling
-    if (isMp4 && streamUrl) {
+    // TCLOUD_PERF_84_FAST_NATIVE_VIDEO
+    // MP4 usa diretamente o stream HTTP local com Range.
+    // Evita MSE/moov discovery/remux no caminho inicial.
+    if (useAdaptiveFallback && isMp4 && streamUrl) {
         return (
             <Suspense fallback={
                 <div className="viewer-overlay tcloud-viewer-overlay fixed inset-0 z-[200] flex items-center justify-center">
                     <div className="flex items-center gap-3 text-white/80">
                         <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                        Preparando vídeo…
+                        Ajustando o video...
                     </div>
                 </div>
             }>
@@ -203,10 +223,22 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                         </div>
                     ) : isVideo ? (
                         <video
+                            key={`${file.id}:${activeFolderId ?? 'home'}`}
                             src={streamUrl}
                             controls
                             controlsList="nodownload"
+                            preload="auto"
                             autoPlay
+                            playsInline
+                            onCanPlay={() => {
+                                nativeVideoReadyRef.current = true;
+                            }}
+                            onPlaying={() => {
+                                nativeVideoReadyRef.current = true;
+                            }}
+                            onError={() => {
+                                if (isMp4) setUseAdaptiveFallback(true);
+                            }}
                             className="w-full h-full object-contain"
                         />
                     ) : isAudio ? (

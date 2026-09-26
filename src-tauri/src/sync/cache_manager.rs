@@ -11,7 +11,9 @@ pub struct CacheEntry {
 }
 
 pub fn cache_limit_bytes(db: &DbConnection) -> Result<u64, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare("SELECT value FROM tcloud_settings WHERE key = 'cache_limit_bytes' LIMIT 1")
         .map_err(|e| e.to_string())?;
@@ -26,12 +28,14 @@ pub fn cache_limit_bytes(db: &DbConnection) -> Result<u64, String> {
 }
 
 pub fn set_cache_limit_bytes(db: &DbConnection, value: u64) -> Result<(), String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "INSERT INTO tcloud_settings(key, value)
              VALUES('cache_limit_bytes', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .map_err(|e| e.to_string())?;
     let value = value.to_string();
@@ -70,7 +74,9 @@ pub fn enforce_cache_limit(db: &DbConnection) -> Result<u64, String> {
     }
 
     if !missing_ids.is_empty() {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         for file_id in missing_ids {
             let mut del = conn
                 .prepare("DELETE FROM tcloud_cache WHERE file_id = ?1")
@@ -98,7 +104,9 @@ pub fn enforce_cache_limit(db: &DbConnection) -> Result<u64, String> {
         }
 
         {
-            let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+            let conn = db
+                .lock()
+                .map_err(|_| "database lock poisoned".to_string())?;
             {
                 let mut del = conn
                     .prepare("DELETE FROM tcloud_cache WHERE file_id = ?1")
@@ -123,65 +131,93 @@ pub fn enforce_cache_limit(db: &DbConnection) -> Result<u64, String> {
 }
 
 pub fn free_cache_older_than(db: &DbConnection, days: i64) -> Result<u64, String> {
-    if days <= 0 { return Ok(0); }
+    if days <= 0 {
+        return Ok(0);
+    }
     let cutoff = chrono::Utc::now().timestamp() - days.clamp(1, 365) * 86_400;
     let entries = {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
-        let mut stmt = conn.prepare(
-            "SELECT c.file_id,c.local_path
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.file_id,c.local_path
              FROM tcloud_cache c
              WHERE c.last_accessed_at < ?1
                AND NOT EXISTS (SELECT 1 FROM tcloud_offline_pins p WHERE p.file_id=c.file_id)
-             ORDER BY c.last_accessed_at ASC"
-        ).map_err(|e|e.to_string())?;
-        stmt.bind((1,cutoff)).map_err(|e|e.to_string())?;
-        let mut out=Vec::new();
-        while let sqlite::State::Row=stmt.next().map_err(|e|e.to_string())? {
-            out.push((stmt.read::<i64,_>(0).map_err(|e|e.to_string())?, PathBuf::from(stmt.read::<String,_>(1).map_err(|e|e.to_string())?)));
+             ORDER BY c.last_accessed_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        stmt.bind((1, cutoff)).map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
+            out.push((
+                stmt.read::<i64, _>(0).map_err(|e| e.to_string())?,
+                PathBuf::from(stmt.read::<String, _>(1).map_err(|e| e.to_string())?),
+            ));
         }
         out
     };
-    let mut freed=0u64;
-    for (file_id,path) in entries {
-        let size=std::fs::metadata(&path).map(|m|m.len()).unwrap_or(0);
-        if path.exists() { let _=std::fs::remove_file(&path); }
-        if let Some(parent)=path.parent(){let _=std::fs::remove_dir(parent);}
-        let conn=db.lock().map_err(|_|"database lock poisoned".to_string())?;
-        let mut del=conn.prepare("DELETE FROM tcloud_cache WHERE file_id=?1").map_err(|e|e.to_string())?;
-        del.bind((1,file_id)).map_err(|e|e.to_string())?;del.next().map_err(|e|e.to_string())?;drop(del);
-        let mut upd=conn.prepare("UPDATE tcloud_files SET local_status='online' WHERE id=?1").map_err(|e|e.to_string())?;
-        upd.bind((1,file_id)).map_err(|e|e.to_string())?;upd.next().map_err(|e|e.to_string())?;
-        freed=freed.saturating_add(size);
+    let mut freed = 0u64;
+    for (file_id, path) in entries {
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::remove_dir(parent);
+        }
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        let mut del = conn
+            .prepare("DELETE FROM tcloud_cache WHERE file_id=?1")
+            .map_err(|e| e.to_string())?;
+        del.bind((1, file_id)).map_err(|e| e.to_string())?;
+        del.next().map_err(|e| e.to_string())?;
+        drop(del);
+        let mut upd = conn
+            .prepare("UPDATE tcloud_files SET local_status='online' WHERE id=?1")
+            .map_err(|e| e.to_string())?;
+        upd.bind((1, file_id)).map_err(|e| e.to_string())?;
+        upd.next().map_err(|e| e.to_string())?;
+        freed = freed.saturating_add(size);
     }
     Ok(freed)
 }
 
 fn evictable_cache_entries(db: &DbConnection) -> Result<Vec<CacheEntry>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT c.file_id,c.local_path,c.last_accessed_at
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.file_id,c.local_path,c.last_accessed_at
          FROM tcloud_cache c
          WHERE NOT EXISTS (SELECT 1 FROM tcloud_offline_pins p WHERE p.file_id=c.file_id)
-         ORDER BY c.last_accessed_at ASC"
-    ).map_err(|e|e.to_string())?;
-    let mut items=Vec::new();
-    while let sqlite::State::Row=stmt.next().map_err(|e|e.to_string())? {
-        items.push(CacheEntry{
-            file_id:stmt.read::<i64,_>(0).map_err(|e|e.to_string())?,
-            local_path:PathBuf::from(stmt.read::<String,_>(1).map_err(|e|e.to_string())?),
-            last_accessed_at:stmt.read::<i64,_>(2).unwrap_or(0),
+         ORDER BY c.last_accessed_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut items = Vec::new();
+    while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
+        items.push(CacheEntry {
+            file_id: stmt.read::<i64, _>(0).map_err(|e| e.to_string())?,
+            local_path: PathBuf::from(stmt.read::<String, _>(1).map_err(|e| e.to_string())?),
+            last_accessed_at: stmt.read::<i64, _>(2).unwrap_or(0),
         });
     }
     Ok(items)
 }
 
 fn cache_entries(db: &DbConnection) -> Result<Vec<CacheEntry>, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "SELECT file_id, local_path, last_accessed_at
              FROM tcloud_cache
-             ORDER BY last_accessed_at ASC"
+             ORDER BY last_accessed_at ASC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -189,9 +225,7 @@ fn cache_entries(db: &DbConnection) -> Result<Vec<CacheEntry>, String> {
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
         items.push(CacheEntry {
             file_id: stmt.read::<i64, _>(0).map_err(|e| e.to_string())?,
-            local_path: PathBuf::from(
-                stmt.read::<String, _>(1).map_err(|e| e.to_string())?
-            ),
+            local_path: PathBuf::from(stmt.read::<String, _>(1).map_err(|e| e.to_string())?),
             last_accessed_at: stmt.read::<i64, _>(2).unwrap_or(0),
         });
     }

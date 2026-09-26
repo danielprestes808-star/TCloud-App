@@ -1,6 +1,6 @@
-use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::Command;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -15,7 +15,12 @@ fn hidden_command(program: &str) -> Command {
 #[cfg(target_os = "windows")]
 fn startup_entry_output() -> Option<String> {
     let output = hidden_command("reg")
-        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "TCloud"])
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            "/v",
+            "TCloud",
+        ])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -31,17 +36,25 @@ fn startup_entry_exists() -> bool {
 
 #[cfg(target_os = "windows")]
 fn startup_entry_is_current() -> bool {
-    let Some(output) = startup_entry_output() else { return false; };
-    let Ok(exe) = std::env::current_exe() else { return startup_entry_exists(); };
+    let Some(output) = startup_entry_output() else {
+        return false;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return startup_entry_exists();
+    };
     let exe = exe.to_string_lossy().replace('/', "\\").to_lowercase();
     output.replace('/', "\\").to_lowercase().contains(&exe)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn startup_entry_exists() -> bool { false }
+fn startup_entry_exists() -> bool {
+    false
+}
 
 #[cfg(not(target_os = "windows"))]
-fn startup_entry_is_current() -> bool { false }
+fn startup_entry_is_current() -> bool {
+    false
+}
 
 pub(crate) fn repair_startup_if_configured() {
     #[cfg(target_os = "windows")]
@@ -71,8 +84,15 @@ pub fn tcloud_set_startup_enabled(enabled: bool) -> Result<bool, String> {
             let exe_value = format!("\"{}\" --background", exe.display());
             let output = hidden_command("reg")
                 .args([
-                    "add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                    "/v", "TCloud", "/t", "REG_SZ", "/d", &exe_value, "/f",
+                    "add",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v",
+                    "TCloud",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &exe_value,
+                    "/f",
                 ])
                 .output()
                 .map_err(|e| format!("failed to configure Windows startup: {e}"))?;
@@ -83,12 +103,19 @@ pub fn tcloud_set_startup_enabled(enabled: bool) -> Result<bool, String> {
         } else {
             let _ = hidden_command("reg")
                 .args([
-                    "delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                    "/v", "TCloud", "/f",
+                    "delete",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v",
+                    "TCloud",
+                    "/f",
                 ])
                 .output();
         }
-        Ok(if enabled { startup_entry_is_current() } else { !startup_entry_exists() })
+        Ok(if enabled {
+            startup_entry_is_current()
+        } else {
+            !startup_entry_exists()
+        })
     }
 
     #[cfg(not(target_os = "windows"))]

@@ -1,20 +1,22 @@
-use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
-use actix_cors::Cors;
-use crate::commands::TelegramState;
 use crate::commands::utils::{media_size, resolve_peer};
-use grammers_client::types::Media;
+use crate::commands::TelegramState;
 use crate::transcode::TranscodeManager;
+use actix_cors::Cors;
+use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use grammers_client::types::Media;
 
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const AD_SCRIPT_HOST: &str = "www.highperformanceformat.com";
-const AD_SCRIPT_URL: &str = "https://www.highperformanceformat.com/9cf449272b7e1c83054b82b7639c6029/invoke.js";
+const AD_SCRIPT_URL: &str =
+    "https://www.highperformanceformat.com/9cf449272b7e1c83054b82b7639c6029/invoke.js";
 const AD_SCRIPT_CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 const AD_SCRIPT_MAX_BYTES: usize = 512 * 1024;
 const AD_SCRIPT_FALLBACK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-const AD_DOH_URL: &str = "https://cloudflare-dns.com/dns-query?name=www.highperformanceformat.com&type=A";
+const AD_DOH_URL: &str =
+    "https://cloudflare-dns.com/dns-query?name=www.highperformanceformat.com&type=A";
 
 #[derive(Clone)]
 struct CachedAdScript {
@@ -107,8 +109,8 @@ const AD_BANNER_HTML: &str = r#"<!DOCTYPE html>
       };
     })();
   </script>
-  <script 
-    type="text/javascript" 
+  <script
+    type="text/javascript"
     src="/ad-script"
     referrerpolicy="no-referrer"
     onload="window.telegramDriveAdLoaded()"
@@ -237,12 +239,16 @@ pub fn build_media_response(
         debug_assert!(
             cdn_aligned_start <= start_byte,
             "CDN alignment invariant violated: aligned {} > requested {}",
-            cdn_aligned_start, start_byte
+            cdn_aligned_start,
+            start_byte
         );
 
         log::debug!(
             "Range alignment: requested={}, cdn_aligned={}, chunk_index={}, bytes_to_skip={}",
-            start_byte, cdn_aligned_start, chunk_index, bytes_to_skip,
+            start_byte,
+            cdn_aligned_start,
+            chunk_index,
+            bytes_to_skip,
         );
     }
 
@@ -294,7 +300,10 @@ pub fn build_media_response(
 
     let mut resp = if is_range {
         let mut r = HttpResponse::PartialContent();
-        r.insert_header(("Content-Range", format!("bytes {}-{}/{}", start_byte, end_byte, size)));
+        r.insert_header((
+            "Content-Range",
+            format!("bytes {}-{}/{}", start_byte, end_byte, size),
+        ));
         r.insert_header(("Content-Length", content_length.to_string()));
         r
     } else {
@@ -470,10 +479,7 @@ fn ad_script_response(body: bytes::Bytes, cache_state: &'static str) -> HttpResp
 /// A validated cached copy is retained so transient DNS/network failures do not
 /// turn a previously working banner into a blank panel.
 #[get("/ad-script")]
-async fn ad_script(
-    req: actix_web::HttpRequest,
-    cache: web::Data<AdScriptCache>,
-) -> impl Responder {
+async fn ad_script(req: actix_web::HttpRequest, cache: web::Data<AdScriptCache>) -> impl Responder {
     {
         let cached = cache.value.read().await;
         if let Some(script) = cached.as_ref() {
@@ -527,14 +533,20 @@ async fn stream_media(
     // Validate session token
     match &query.token {
         Some(t) if t == &token_data.token => {
-            log::debug!("Stream request: Token validated successfully for msg {}", message_id);
-        },
+            log::debug!(
+                "Stream request: Token validated successfully for msg {}",
+                message_id
+            );
+        }
         _ => {
-            log::error!("Stream request failed: Invalid or missing stream token for msg {}", message_id);
-            return HttpResponse::Forbidden().body("Invalid or missing stream token")
-        },
+            log::error!(
+                "Stream request failed: Invalid or missing stream token for msg {}",
+                message_id
+            );
+            return HttpResponse::Forbidden().body("Invalid or missing stream token");
+        }
     }
-    
+
     // Parse folder ID
     let folder_id = if folder_id_str == "me" || folder_id_str == "home" || folder_id_str == "null" {
         log::debug!("Stream request: Using root folder for msg {}", message_id);
@@ -542,13 +554,21 @@ async fn stream_media(
     } else {
         match folder_id_str.parse::<i64>() {
             Ok(id) => {
-                log::debug!("Stream request: Parsed folder ID {} for msg {}", id, message_id);
+                log::debug!(
+                    "Stream request: Parsed folder ID {} for msg {}",
+                    id,
+                    message_id
+                );
                 Some(id)
-            },
+            }
             Err(_) => {
-                log::error!("Stream request failed: Invalid folder ID format '{}' for msg {}", folder_id_str, message_id);
-                return HttpResponse::BadRequest().body("Invalid folder ID")
-            },
+                log::error!(
+                    "Stream request failed: Invalid folder ID format '{}' for msg {}",
+                    folder_id_str,
+                    message_id
+                );
+                return HttpResponse::BadRequest().body("Invalid folder ID");
+            }
         }
     };
 
@@ -573,17 +593,21 @@ async fn stream_media(
         );
     }
 
-    let client_opt = {
-        data.client.lock().await.clone()
-    };
+    let client_opt = { data.client.lock().await.clone() };
 
     if let Some(client) = client_opt {
-        log::debug!("Stream request: Client acquired, resolving peer for msg {}...", message_id);
+        log::debug!(
+            "Stream request: Client acquired, resolving peer for msg {}...",
+            message_id
+        );
         match resolve_peer(&client, folder_id, &data.peer_cache).await {
             Ok(peer) => {
-                log::debug!("Stream request: Peer resolved, fetching message {}...", message_id);
+                log::debug!(
+                    "Stream request: Peer resolved, fetching message {}...",
+                    message_id
+                );
                 // Try to fetch message efficiently
-                 match client.get_messages_by_id(peer, &[message_id]).await {
+                match client.get_messages_by_id(peer, &[message_id]).await {
                     Ok(messages) => {
                         if let Some(Some(msg)) = messages.first() {
                             if msg.text() == "TDENC2"
@@ -598,43 +622,71 @@ async fn stream_media(
                                 );
                             }
                             if let Some(media) = msg.media() {
-                                log::debug!("Stream request: Message and media found for msg {}", message_id);
+                                log::debug!(
+                                    "Stream request: Message and media found for msg {}",
+                                    message_id
+                                );
                                 let mime = mime_type_from_media(&media);
                                 return build_media_response(
-                                    &client, &media, &req, &mime, None,
+                                    &client,
+                                    &media,
+                                    &req,
+                                    &mime,
+                                    None,
                                     StreamingExtras {
-                                        extra_headers: vec![("Cache-Control", "private, max-age=120".to_string())],
+                                        extra_headers: vec![(
+                                            "Cache-Control",
+                                            "private, max-age=3600".to_string(),
+                                        )],
                                         log_label: "Stream",
                                     },
                                 );
                             } else {
-                                log::error!("Stream request failed: Media not found in message {}", message_id);
+                                log::error!(
+                                    "Stream request failed: Media not found in message {}",
+                                    message_id
+                                );
                             }
                         } else {
                             log::error!("Stream request failed: Message {} not found", message_id);
                         }
                         HttpResponse::NotFound().body("Message or media not found")
-                    },
+                    }
                     Err(e) => {
-                        log::error!("Stream request failed: Error fetching message {}: {}", message_id, e);
-                        HttpResponse::InternalServerError().body(format!("Failed to fetch message: {}", e))
-                    },
-                 }
-            },
+                        log::error!(
+                            "Stream request failed: Error fetching message {}: {}",
+                            message_id,
+                            e
+                        );
+                        HttpResponse::InternalServerError()
+                            .body(format!("Failed to fetch message: {}", e))
+                    }
+                }
+            }
             Err(e) => {
-                log::error!("Stream request failed: Peer resolution error for msg {}: {}", message_id, e);
+                log::error!(
+                    "Stream request failed: Peer resolution error for msg {}: {}",
+                    message_id,
+                    e
+                );
                 HttpResponse::BadRequest().body(format!("Peer resolution failed: {}", e))
-            },
+            }
         }
     } else {
-        log::error!("Stream request failed: Telegram client not connected for msg {}", message_id);
+        log::error!(
+            "Stream request failed: Telegram client not connected for msg {}",
+            message_id
+        );
         HttpResponse::ServiceUnavailable().body("Telegram client not connected")
     }
 }
 
 fn mime_type_from_media(media: &Media) -> String {
     match media {
-        Media::Document(d) => d.mime_type().unwrap_or("application/octet-stream").to_string(),
+        Media::Document(d) => d
+            .mime_type()
+            .unwrap_or("application/octet-stream")
+            .to_string(),
         _ => "application/octet-stream".to_string(),
     }
 }
@@ -660,7 +712,10 @@ mod ad_tests {
     #[test]
     fn ad_script_validation_rejects_empty_or_unexpected_responses() {
         let valid = format!("/* atOptions currentScript */{}", "x".repeat(1100));
-        assert!(is_valid_ad_script("application/javascript", valid.as_bytes()));
+        assert!(is_valid_ad_script(
+            "application/javascript",
+            valid.as_bytes()
+        ));
         assert!(!is_valid_ad_script("text/html", valid.as_bytes()));
         assert!(!is_valid_ad_script(
             "application/javascript",
@@ -673,9 +728,7 @@ mod ad_tests {
         assert!(is_public_ad_ip(IpAddr::V4(Ipv4Addr::new(
             172, 240, 108, 76
         ))));
-        assert!(!is_public_ad_ip(IpAddr::V4(Ipv4Addr::new(
-            192, 168, 4, 1
-        ))));
+        assert!(!is_public_ad_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 4, 1))));
         assert!(!is_public_ad_ip(IpAddr::V4(Ipv4Addr::LOCALHOST)));
         assert!(!is_public_ad_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
     }
@@ -702,7 +755,7 @@ pub async fn start_server(
     let db_data = web::Data::new(db_pool);
     let transcode_data = web::Data::new(transcode_manager);
     let ad_script_cache = web::Data::new(AdScriptCache::default());
-    
+
     log::info!("Starting Streaming Server on port {}", port);
 
     // Bind the listener to 127.0.0.1 explicitly.
@@ -718,10 +771,16 @@ pub async fn start_server(
             l
         }
         Err(e) => {
-            log::warn!("IPv4 loopback bind failed ({}), falling back to IPv6 loopback", e);
+            log::warn!(
+                "IPv4 loopback bind failed ({}), falling back to IPv6 loopback",
+                e
+            );
             let ipv6_addr = format!("[::1]:{}", port);
             let l = TcpListener::bind(&ipv6_addr)?;
-            log::info!("Streaming Server listening on {} (IPv6 loopback)", ipv6_addr);
+            log::info!(
+                "Streaming Server listening on {} (IPv6 loopback)",
+                ipv6_addr
+            );
             l
         }
     };

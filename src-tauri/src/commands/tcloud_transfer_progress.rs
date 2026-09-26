@@ -21,9 +21,6 @@ pub fn tcloud_transfer_progress(
 }
 
 #[tauri::command]
-pub fn tcloud_transfer_finish(
-    db: State<'_, DbConnection>,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn tcloud_transfer_finish(db: State<'_, DbConnection>, job_id: i64) -> Result<(), String> {
     progress::finish_transfer(db.inner(), job_id)
 }

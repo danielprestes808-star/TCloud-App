@@ -6,8 +6,7 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 pub fn sha256_file(path: &Path) -> Result<String, String> {
-    let file = File::open(path)
-        .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+    let file = File::open(path).map_err(|e| format!("failed to open {}: {e}", path.display()))?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 1024 * 1024];

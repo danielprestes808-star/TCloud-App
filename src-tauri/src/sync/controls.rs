@@ -9,17 +9,16 @@ pub enum JobControlState {
     Cancelled,
 }
 
-pub fn job_control_state(
-    db: &DbConnection,
-    job_id: i64,
-) -> Result<JobControlState, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn job_control_state(db: &DbConnection, job_id: i64) -> Result<JobControlState, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "SELECT paused, cancel_requested
              FROM tcloud_sync_jobs
              WHERE id = ?1
-             LIMIT 1"
+             LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, job_id)).map_err(|e| e.to_string())?;
@@ -40,13 +39,12 @@ pub fn job_control_state(
     }
 }
 
-pub fn mark_cancelled(
-    db: &DbConnection,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn mark_cancelled(db: &DbConnection, job_id: i64) -> Result<(), String> {
     crate::sync::progress::forget_transfer(job_id);
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
@@ -55,7 +53,7 @@ pub fn mark_cancelled(
                  speed_bps = 0,
                  eta_seconds = NULL,
                  updated_at = ?1
-             WHERE id = ?2"
+             WHERE id = ?2",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, now)).map_err(|e| e.to_string())?;
@@ -64,9 +62,6 @@ pub fn mark_cancelled(
     Ok(())
 }
 
-pub fn wait_if_paused(
-    db: &DbConnection,
-    job_id: i64,
-) -> Result<JobControlState, String> {
+pub fn wait_if_paused(db: &DbConnection, job_id: i64) -> Result<JobControlState, String> {
     job_control_state(db, job_id)
 }

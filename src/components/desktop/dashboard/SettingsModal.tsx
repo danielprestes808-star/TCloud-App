@@ -21,8 +21,11 @@ import { clearImageMemoryCaches } from '../../../services/imagePreviewCache';
 import TCloudSettingsPage from '../../../pages/TCloudSettingsPage';
 import TCloudFoldersPage from '../../../pages/TCloudFoldersPage';
 import { prepareRollback, cancelRollback } from '../../../services/tcloudCompletion';
+import { TCloudAccountCard } from './TCloudAccountCard';
 import { TCloudSimpleSettingsHome } from './TCloudSimpleSettingsHome';
 
+import { TCloudThemeSetting } from '../TCloudThemeSetting.tsx';
+// TCLOUD_DESKTOP_THEME_CONTROL_202
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -30,6 +33,7 @@ interface SettingsModalProps {
     onOpenAdvanced?: () => void;
     onOpenSetup?: () => void;
     isConnected?: boolean;
+    embedded?: boolean;
 }
 
 interface ApiSettings {
@@ -42,7 +46,7 @@ interface ApiSettings {
 
 type SettingsTab = 'home' | 'general' | 'tcloud' | 'tcloud-folders' | 'telegram' | 'themes' | 'proxy' | 'vpn' | 'encryption' | 'sharing' | 'about';
 
-export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvanced, onOpenSetup, isConnected = true }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvanced, onOpenSetup, isConnected = true, embedded = false }: SettingsModalProps) {
     const { settings, updateSetting, resetSettings } = useSettings();
     const { confirm } = useConfirm();
     const { t } = useTranslation();
@@ -53,6 +57,14 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
     const [cacheLoading, setCacheLoading] = useState(false);
     const [clearingVariant, setClearingVariant] = useState<string | null>(null); // file_key:quality being cleared
     const [activeTab, setActiveTab] = useState<SettingsTab>('home');
+    const [interfaceDensity, setInterfaceDensity] = useState<'comfortable' | 'compact'>(() =>
+        localStorage.getItem('tcloud:interface-density') === 'compact' ? 'compact' : 'comfortable'
+    );
+    const changeInterfaceDensity = (value: 'comfortable' | 'compact') => {
+        setInterfaceDensity(value);
+        localStorage.setItem('tcloud:interface-density', value);
+        document.documentElement.dataset.density = value;
+    };
     const [showAdvanced, setShowAdvanced] = useState(
         () => localStorage.getItem('tcloud:advanced-ui') === 'true'
     );
@@ -455,8 +467,8 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="tcloud-settings-page-shell fixed z-[100]"
-                    onClick={onClose}
+                    className={`tcloud-settings-page-shell fixed z-[100] ${embedded ? 'is-embedded' : ''}`}
+                    onClick={embedded ? undefined : onClose}
                 >
                     <motion.div
                         layout
@@ -473,6 +485,11 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                 <h2 className="text-base font-semibold text-app-text">{t('settings.title')}</h2>
                                 <p className="mt-0.5 text-xs text-app-text-tertiary">{tabSubtitles[activeTab]}</p>
                             </div>
+                            <label className="tcloud-density-control">Densidade
+                                <select value={interfaceDensity} onChange={(event) => changeInterfaceDensity(event.target.value as 'comfortable' | 'compact')}>
+                                    <option value="comfortable">Confortável</option><option value="compact">Compacta</option>
+                                </select>
+                            </label>
                             <button
                                 onClick={onClose}
                                 className="quiet-control p-2 text-app-text-secondary hover:text-app-text"
@@ -602,6 +619,7 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                     <strong>Os detalhes internos do Telegram ficam escondidos.</strong>
                                     <span>Na interface do TCloud, esses recursos aparecem simplesmente como pastas e locais.</span>
                                 </section>
+                                <TCloudAccountCard />
                             </motion.div>
                         )}
 
@@ -1588,6 +1606,7 @@ export function SettingsModal({ isOpen, onClose, onOpenOperations, onOpenAdvance
                                                     const isExpired = share.expires_at ? (share.expires_at < Math.floor(Date.now() / 1000)) : false;
                                                     return (
                                                         <div key={share.id} className="p-3 rounded-lg bg-telegram-hover/40 border border-telegram-border/50 flex flex-col gap-2 relative">
+<TCloudThemeSetting />
                                                               <div className="flex justify-between items-start gap-4">
                                                                 <div className="min-w-0 flex-1">
                                                                     <div className="text-xs font-semibold text-telegram-text truncate" title={share.file_name}>

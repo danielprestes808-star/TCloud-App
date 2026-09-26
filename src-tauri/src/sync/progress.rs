@@ -32,15 +32,13 @@ pub fn forget_transfer(job_id: i64) {
     lock_samples().remove(&job_id);
 }
 
-pub fn start_transfer(
-    db: &DbConnection,
-    job_id: i64,
-    bytes_total: i64,
-) -> Result<(), String> {
+pub fn start_transfer(db: &DbConnection, job_id: i64, bytes_total: i64) -> Result<(), String> {
     let now = chrono::Utc::now().timestamp();
     let total = bytes_total.max(0);
     {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         let mut stmt = conn
             .prepare(
                 "UPDATE tcloud_sync_jobs
@@ -51,7 +49,7 @@ pub fn start_transfer(
                      speed_bps = 0,
                      eta_seconds = NULL,
                      updated_at = ?3
-                 WHERE id = ?4"
+                 WHERE id = ?4",
             )
             .map_err(|e| e.to_string())?;
         stmt.bind((1, total)).map_err(|e| e.to_string())?;
@@ -77,7 +75,9 @@ pub fn start_transfer(
 }
 
 fn load_total(db: &DbConnection, job_id: i64) -> Result<i64, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare("SELECT bytes_total FROM tcloud_sync_jobs WHERE id=?1 LIMIT 1")
         .map_err(|e| e.to_string())?;
@@ -134,7 +134,10 @@ pub fn update_transfer_progress(
                 sample.smoothed_speed_bps = 0.0;
             }
             sample.sample_at = now_instant;
-        } else if delta_bytes > 0 && sample.sample_bytes == 0 && sample_elapsed < Duration::from_millis(450) {
+        } else if delta_bytes > 0
+            && sample.sample_bytes == 0
+            && sample_elapsed < Duration::from_millis(450)
+        {
             // A resumed download can jump from zero to many MiB instantly because
             // those bytes were already present in the .part file. Treat that as a
             // baseline, not as network throughput.
@@ -170,7 +173,9 @@ pub fn update_transfer_progress(
     }
 
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
@@ -178,7 +183,7 @@ pub fn update_transfer_progress(
                  speed_bps = ?2,
                  eta_seconds = ?3,
                  updated_at = ?4
-             WHERE id = ?5"
+             WHERE id = ?5",
         )
         .map_err(|e| e.to_string())?;
 
@@ -186,7 +191,9 @@ pub fn update_transfer_progress(
     stmt.bind((2, speed_bps)).map_err(|e| e.to_string())?;
     match eta_seconds {
         Some(v) => stmt.bind((3, v)).map_err(|e| e.to_string())?,
-        None => stmt.bind((3, sqlite::Value::Null)).map_err(|e| e.to_string())?,
+        None => stmt
+            .bind((3, sqlite::Value::Null))
+            .map_err(|e| e.to_string())?,
     }
     stmt.bind((4, now)).map_err(|e| e.to_string())?;
     stmt.bind((5, job_id)).map_err(|e| e.to_string())?;
@@ -194,13 +201,12 @@ pub fn update_transfer_progress(
     Ok(())
 }
 
-pub fn finish_transfer(
-    db: &DbConnection,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn finish_transfer(db: &DbConnection, job_id: i64) -> Result<(), String> {
     forget_transfer(job_id);
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
@@ -212,7 +218,7 @@ pub fn finish_transfer(
                  speed_bps = 0,
                  eta_seconds = 0,
                  updated_at = ?1
-             WHERE id = ?2"
+             WHERE id = ?2",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, now)).map_err(|e| e.to_string())?;

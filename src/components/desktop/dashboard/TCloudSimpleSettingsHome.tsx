@@ -38,6 +38,7 @@ import { toast } from 'sonner';
 import { exportDiagnostics } from '../../../services/tcloudProductivity';
 import { applyPerformanceProfile, getPerformanceProfile, type TCloudPerformanceProfile } from '../../../services/tcloudPerformance';
 import { getDesktopPreferences, runTCloudHealthCheck, setDesktopPreferences, type TCloudDesktopPreferences, type TCloudHealthReport } from '../../../services/tcloudDesktopExperience';
+import { PcFolderBackup } from './PcFolderBackup';
 
 type SimpleTarget = 'tcloud' | 'tcloud-folders' | 'themes' | 'encryption' | 'sharing';
 
@@ -307,6 +308,7 @@ export function TCloudSimpleSettingsHome({ onNavigate, onOpenOperations, onOpenA
         </button>
       </section>
 
+      <div className="tcloud-settings-context-heading"><span>ESTE DISPOSITIVO</span><h3>Meu computador</h3><p>Backup, arquivos offline e integração com o Windows.</p></div>
       <section className={`tcloud-computer-connect ${computerConnected ? 'is-connected' : ''}`}>
         <div className="tcloud-computer-connect-icon"><MonitorUp className="h-5 w-5" /></div>
         <div className="tcloud-computer-connect-copy">
@@ -395,6 +397,8 @@ export function TCloudSimpleSettingsHome({ onNavigate, onOpenOperations, onOpenA
           <span><strong>Proteção</strong><small>{maturity ? `${maturity.version_retention} versões · Lixeira ${maturity.trash_retention_days} dias` : 'Versões, lixeira e privacidade'}</small></span>
         </button>
       </div>
+
+      <PcFolderBackup />
 
       <section className="tcloud-simple-section">
         <div className="tcloud-simple-section-heading">

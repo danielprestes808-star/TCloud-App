@@ -28,7 +28,9 @@ pub async fn tcloud_create_storage_chat(
     input: TCloudCreateStorageChatInput,
 ) -> Result<TCloudCreatedStorageChat, String> {
     let folder_name = {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         let mut stmt = conn
             .prepare("SELECT name FROM tcloud_folders WHERE id = ?1 LIMIT 1")
             .map_err(|e| e.to_string())?;
@@ -138,12 +140,14 @@ pub async fn tcloud_create_storage_chat(
 
     {
         let now = chrono::Utc::now().timestamp();
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         let mut stmt = conn
             .prepare(
                 "UPDATE tcloud_folders
                  SET telegram_chat_id = ?1, updated_at = ?2
-                 WHERE id = ?3"
+                 WHERE id = ?3",
             )
             .map_err(|e| e.to_string())?;
         stmt.bind((1, chat_id)).map_err(|e| e.to_string())?;
@@ -155,7 +159,11 @@ pub async fn tcloud_create_storage_chat(
     Ok(TCloudCreatedStorageChat {
         chat_id,
         title,
-        kind: if kind == "channel" { "channel".into() } else { "supergroup".into() },
+        kind: if kind == "channel" {
+            "channel".into()
+        } else {
+            "supergroup".into()
+        },
         folder_id: input.folder_id,
     })
 }

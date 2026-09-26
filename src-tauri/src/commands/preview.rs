@@ -1,16 +1,16 @@
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{media_size, resolve_peer};
+use crate::db::DbConnection;
 use crate::vpn_optimizer::NetworkConfig;
 use crate::TelegramState;
-use crate::db::DbConnection;
 use grammers_client::types::{Media, Peer};
 use image::codecs::jpeg::JpegEncoder;
 use rand::Rng;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{Emitter, Manager, State};
 use tokio::io::AsyncWriteExt;
@@ -19,11 +19,11 @@ use tokio::io::AsyncWriteExt;
 /// Shared between Tauri commands and the REST API cache cleanup.
 pub const THUMBNAIL_EXTS: &[&str] = &["thumb.jpg", "jpg", "jpeg", "png", "gif", "webp", "bmp"];
 
-const PREVIEW_CACHE_MAX_FILES: usize = 30;
+const PREVIEW_CACHE_MAX_FILES: usize = 64;
 const PREVIEW_CACHE_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 const THUMBNAIL_CACHE_MAX_FILES: usize = 4096;
-const THUMBNAIL_CACHE_MAX_TOTAL_BYTES: u64 = 768 * 1024 * 1024;
-const THUMBNAIL_MAX_DIMENSION: u32 = 512;
+const THUMBNAIL_CACHE_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+const THUMBNAIL_MAX_DIMENSION: u32 = 384;
 const CACHE_PRUNE_MIN_INTERVAL_SECS: u64 = 30;
 
 static LAST_PREVIEW_PRUNE_EPOCH_SECS: AtomicU64 = AtomicU64::new(0);
@@ -75,8 +75,12 @@ fn is_registered_encrypted(
     let mut statement = connection
         .prepare("SELECT 1 FROM encrypted_files WHERE folder_key = ? AND message_id = ? AND record_state = 'active'")
         .map_err(|error| error.to_string())?;
-    statement.bind((1, folder_key.as_str())).map_err(|error| error.to_string())?;
-    statement.bind((2, i64::from(message_id))).map_err(|error| error.to_string())?;
+    statement
+        .bind((1, folder_key.as_str()))
+        .map_err(|error| error.to_string())?;
+    statement
+        .bind((2, i64::from(message_id)))
+        .map_err(|error| error.to_string())?;
     Ok(matches!(statement.next(), Ok(sqlite::State::Row)))
 }
 
@@ -632,7 +636,19 @@ pub async fn cmd_get_preview(
         return Ok("".to_string());
     }
     let client = client_opt.ok_or_else(|| "Client not connected".to_string())?;
-    let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
+    // TCLOUD_MEDIA_TOPIC_PEER_HOTFIX_100
+    // TCloud forum topics use negative synthetic folder IDs locally.
+    // Telegram itself knows the parent forum/channel, not that synthetic ID.
+    // Resolve the synthetic topic to its real forum chat before asking grammers
+    // for the message. Keep the original folder_id for cache/encryption identity.
+    let peer_folder_id = if folder_id.is_some_and(|value| value < 0) {
+        crate::commands::tcloud_forums::topic_target(db_pool.inner(), folder_id)?
+            .map(|target| target.chat_id)
+            .or(folder_id)
+    } else {
+        folder_id
+    };
+    let peer = resolve_peer(&client, peer_folder_id, &state.peer_cache).await?;
     let message = client
         .get_messages_by_id(&peer, &[message_id])
         .await
@@ -800,12 +816,15 @@ pub async fn cmd_get_thumbnail(
     // prefetch gives the active transfer a larger window and simply defers if the
     // network is still busy.
     let background_request = background.unwrap_or(false);
-    let headroom = wait_for_thumbnail_headroom(
-        db_pool.inner(),
-        if background_request { Duration::from_secs(4) } else { Duration::from_millis(750) },
-    ).await?;
-    if background_request && !headroom {
-        return Ok(String::new());
+    // TCLOUD_PERF_83_VISIBLE_THUMB_PRIORITY
+    // A visible card is user-facing work: do not intentionally wait behind a
+    // transfer before even asking Telegram for its small thumbnail. Only
+    // speculative/background requests wait for network headroom.
+    if background_request {
+        let headroom = wait_for_thumbnail_headroom(db_pool.inner(), Duration::from_secs(2)).await?;
+        if !headroom {
+            return Ok(String::new());
+        }
     }
 
     let client_opt = { state.client.lock().await.clone() };
@@ -814,7 +833,19 @@ pub async fn cmd_get_thumbnail(
         return Ok("".to_string());
     }
     let client = client_opt.ok_or_else(|| "Client not connected".to_string())?;
-    let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
+    // TCLOUD_MEDIA_TOPIC_PEER_HOTFIX_100
+    // TCloud forum topics use negative synthetic folder IDs locally.
+    // Telegram itself knows the parent forum/channel, not that synthetic ID.
+    // Resolve the synthetic topic to its real forum chat before asking grammers
+    // for the message. Keep the original folder_id for cache/encryption identity.
+    let peer_folder_id = if folder_id.is_some_and(|value| value < 0) {
+        crate::commands::tcloud_forums::topic_target(db_pool.inner(), folder_id)?
+            .map(|target| target.chat_id)
+            .or(folder_id)
+    } else {
+        folder_id
+    };
+    let peer = resolve_peer(&client, peer_folder_id, &state.peer_cache).await?;
     let message = client
         .get_messages_by_id(&peer, &[message_id])
         .await
@@ -852,7 +883,7 @@ pub async fn cmd_get_thumbnail(
 
     let selected_thumbnail = thumbnails
         .iter()
-        .filter(|thumbnail| thumbnail.size() > 0 && thumbnail.size() <= 512 * 1024)
+        .filter(|thumbnail| thumbnail.size() > 0 && thumbnail.size() <= 256 * 1024)
         .max_by_key(|thumbnail| thumbnail.size())
         .or_else(|| {
             thumbnails
@@ -904,9 +935,7 @@ pub async fn cmd_get_thumbnail(
     // into a huge hidden transfer: very large originals use the normal file icon until
     // the user explicitly opens/downloads them.
     let original_size = media_size(&media);
-    if original_size > 32 * 1024 * 1024
-        || (background_request && original_size > 8 * 1024 * 1024)
-    {
+    if original_size > 32 * 1024 * 1024 || (background_request && original_size > 8 * 1024 * 1024) {
         return Ok(String::new());
     }
 
@@ -930,7 +959,7 @@ pub async fn cmd_get_thumbnail(
             download_limit_bytes_per_sec: net_config.download_limit_bytes_per_sec(),
             app_handle: &app_handle,
             bandwidth: bw_state.inner().as_ref(),
-            report_progress: true,
+            report_progress: false,
         })
         .await?;
         schedule_preview_cache_prune(preview_dir.clone(), Some(path.clone()));

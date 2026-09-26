@@ -40,20 +40,22 @@ fn scalar_i64(conn: &sqlite::Connection, sql: &str) -> Result<i64, String> {
 pub fn tcloud_get_dashboard_stats(
     db: State<'_, DbConnection>,
 ) -> Result<TCloudDashboardStats, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let files = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_files")?;
     let folders = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_folders WHERE parent_id IS NOT NULL"
+        "SELECT COUNT(*) FROM tcloud_folders WHERE parent_id IS NOT NULL",
     )?;
     let pending_jobs = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status = 'pending'"
+        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status = 'pending'",
     )?;
     let running_jobs = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status = 'running'"
+        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status = 'running'",
     )?;
     let failed_jobs = scalar_i64(
         &conn,
@@ -63,24 +65,18 @@ pub fn tcloud_get_dashboard_stats(
     )?;
     let conflicts = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_sync_conflicts WHERE resolution = 'pending'"
+        "SELECT COUNT(*) FROM tcloud_sync_conflicts WHERE resolution = 'pending'",
     )?;
     let synced_files = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_files WHERE sync_status = 'synced'"
+        "SELECT COUNT(*) FROM tcloud_files WHERE sync_status = 'synced'",
     )?;
     let online_only_files = scalar_i64(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_files WHERE local_status = 'online'"
+        "SELECT COUNT(*) FROM tcloud_files WHERE local_status = 'online'",
     )?;
-    let cached_files = scalar_i64(
-        &conn,
-        "SELECT COUNT(*) FROM tcloud_cache"
-    )?;
-    let total_bytes = scalar_i64(
-        &conn,
-        "SELECT COALESCE(SUM(size), 0) FROM tcloud_files"
-    )?;
+    let cached_files = scalar_i64(&conn, "SELECT COUNT(*) FROM tcloud_cache")?;
+    let total_bytes = scalar_i64(&conn, "SELECT COALESCE(SUM(size), 0) FROM tcloud_files")?;
 
     /*
      * Recentes reais:
@@ -115,7 +111,7 @@ pub fn tcloud_get_dashboard_stats(
                      ELSE 1
                  END ASC,
                  recent_at DESC
-             LIMIT 8"
+             LIMIT 8",
         )
         .map_err(|e| e.to_string())?;
 
@@ -123,11 +119,19 @@ pub fn tcloud_get_dashboard_stats(
     while let sqlite::State::Row = recent_stmt.next().map_err(|e| e.to_string())? {
         recent_files.push(TCloudRecentFile {
             id: recent_stmt.read::<i64, _>(0).map_err(|e| e.to_string())?,
-            name: recent_stmt.read::<String, _>(1).map_err(|e| e.to_string())?,
-            path: recent_stmt.read::<String, _>(2).map_err(|e| e.to_string())?,
+            name: recent_stmt
+                .read::<String, _>(1)
+                .map_err(|e| e.to_string())?,
+            path: recent_stmt
+                .read::<String, _>(2)
+                .map_err(|e| e.to_string())?,
             size: recent_stmt.read::<i64, _>(3).unwrap_or(0),
-            sync_status: recent_stmt.read::<String, _>(4).unwrap_or_else(|_| "unknown".into()),
-            local_status: recent_stmt.read::<String, _>(5).unwrap_or_else(|_| "online".into()),
+            sync_status: recent_stmt
+                .read::<String, _>(4)
+                .unwrap_or_else(|_| "unknown".into()),
+            local_status: recent_stmt
+                .read::<String, _>(5)
+                .unwrap_or_else(|_| "online".into()),
             updated_at: recent_stmt.read::<i64, _>(6).unwrap_or(0),
         });
     }

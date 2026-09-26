@@ -66,6 +66,13 @@ export interface ProBackupScanResult {
   total_bytes: number;
 }
 
+export interface PcKnownFolder {
+  key: 'desktop' | 'documents' | 'pictures' | 'videos' | 'music';
+  label: string;
+  path: string;
+  available: boolean;
+}
+
 export const getProIndexStats = () => invoke<ProIndexStats>('tcloud_pro_index_stats');
 export const markProIndexRebuilt = () => invoke<number>('tcloud_pro_mark_index_rebuilt');
 export const listTrash = () => invoke<ProTrashItem[]>('tcloud_pro_trash_list');
@@ -88,6 +95,7 @@ export const saveRule = (payload: Omit<ProRule, 'id'> & { id?: number }) => invo
 });
 export const deleteRule = (id: number) => invoke<boolean>('tcloud_pro_rule_delete', { id });
 export const listBackups = () => invoke<ProBackupSource[]>('tcloud_pro_backups_list');
+export const listPcKnownFolders = () => invoke<PcKnownFolder[]>('tcloud_pc_known_folders');
 export const saveBackup = (payload: Omit<ProBackupSource, 'id' | 'last_run_at'> & { id?: number }) => invoke<number>('tcloud_pro_backup_save', {
   id: payload.id ?? null,
   localPath: payload.local_path,
@@ -96,6 +104,7 @@ export const saveBackup = (payload: Omit<ProBackupSource, 'id' | 'last_run_at'> 
   intervalMinutes: payload.interval_minutes,
 });
 export const deleteBackup = (id: number) => invoke<boolean>('tcloud_pro_backup_delete', { id });
+export const runBackupsNow = (id?: number) => invoke<number>('tcloud_pro_backup_run_now', { id: id ?? null });
 export const scanBackup = (id: number) => invoke<ProBackupScanResult>('tcloud_pro_backup_scan', { id });
 export const pinOffline = (fileId: number, pinned: boolean) => invoke<boolean>('tcloud_pro_offline_pin', { fileId, pinned });
 

@@ -19,7 +19,7 @@ fn set_setting(conn: &sqlite::Connection, key: &str, value: &str) -> Result<(), 
         .prepare(
             "INSERT INTO tcloud_settings(key, value)
              VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, key)).map_err(|e| e.to_string())?;
@@ -41,7 +41,9 @@ fn read_setting(conn: &sqlite::Connection, key: &str) -> Result<Option<String>, 
 
 /// Refresh an expired scheduled pause while the DB lock is already held.
 /// Returns the effective pause state after any automatic resume.
-pub(crate) fn refresh_global_pause_locked(conn: &sqlite::Connection) -> Result<TCloudGlobalPauseState, String> {
+pub(crate) fn refresh_global_pause_locked(
+    conn: &sqlite::Connection,
+) -> Result<TCloudGlobalPauseState, String> {
     let now = chrono::Utc::now().timestamp();
     let raw = read_setting(conn, "sync_global_pause_until")?
         .and_then(|v| v.parse::<i64>().ok())
@@ -49,37 +51,50 @@ pub(crate) fn refresh_global_pause_locked(conn: &sqlite::Connection) -> Result<T
 
     if raw > 0 && raw <= now {
         set_setting(conn, "sync_global_pause_until", "0")?;
-        let mut resume = conn.prepare(
-            "UPDATE tcloud_sync_jobs
+        let mut resume = conn
+            .prepare(
+                "UPDATE tcloud_sync_jobs
              SET paused=0,
                  pause_scope=NULL,
                  status=CASE WHEN status='paused' THEN 'pending' ELSE status END,
                  updated_at=?1
-             WHERE pause_scope='global'"
-        ).map_err(|e| e.to_string())?;
+             WHERE pause_scope='global'",
+            )
+            .map_err(|e| e.to_string())?;
         resume.bind((1, now)).map_err(|e| e.to_string())?;
         resume.next().map_err(|e| e.to_string())?;
         drop(resume);
         crate::sync::scheduler::signal_sync_work();
-        return Ok(TCloudGlobalPauseState { paused: false, until: None });
+        return Ok(TCloudGlobalPauseState {
+            paused: false,
+            until: None,
+        });
     }
 
     if raw == -1 {
-        Ok(TCloudGlobalPauseState { paused: true, until: Some(-1) })
+        Ok(TCloudGlobalPauseState {
+            paused: true,
+            until: Some(-1),
+        })
     } else if raw > now {
-        Ok(TCloudGlobalPauseState { paused: true, until: Some(raw) })
+        Ok(TCloudGlobalPauseState {
+            paused: true,
+            until: Some(raw),
+        })
     } else {
-        Ok(TCloudGlobalPauseState { paused: false, until: None })
+        Ok(TCloudGlobalPauseState {
+            paused: false,
+            until: None,
+        })
     }
 }
 
 #[tauri::command]
-pub fn tcloud_pause_sync_job(
-    db: State<'_, DbConnection>,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn tcloud_pause_sync_job(db: State<'_, DbConnection>, job_id: i64) -> Result<(), String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
@@ -89,7 +104,7 @@ pub fn tcloud_pause_sync_job(
                  speed_bps = 0,
                  eta_seconds = NULL,
                  updated_at = ?1
-             WHERE id = ?2"
+             WHERE id = ?2",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, now)).map_err(|e| e.to_string())?;
@@ -99,12 +114,11 @@ pub fn tcloud_pause_sync_job(
 }
 
 #[tauri::command]
-pub fn tcloud_resume_sync_job(
-    db: State<'_, DbConnection>,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn tcloud_resume_sync_job(db: State<'_, DbConnection>, job_id: i64) -> Result<(), String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
@@ -117,7 +131,7 @@ pub fn tcloud_resume_sync_job(
                  END,
                  error = NULL,
                  updated_at = ?1
-             WHERE id = ?2"
+             WHERE id = ?2",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, now)).map_err(|e| e.to_string())?;
@@ -130,12 +144,11 @@ pub fn tcloud_resume_sync_job(
 }
 
 #[tauri::command]
-pub fn tcloud_cancel_sync_job(
-    db: State<'_, DbConnection>,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn tcloud_cancel_sync_job(db: State<'_, DbConnection>, job_id: i64) -> Result<(), String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
@@ -149,7 +162,7 @@ pub fn tcloud_cancel_sync_job(
                  speed_bps = 0,
                  eta_seconds = NULL,
                  updated_at = ?1
-             WHERE id = ?2"
+             WHERE id = ?2",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, now)).map_err(|e| e.to_string())?;
@@ -164,12 +177,14 @@ pub async fn tcloud_get_transfer_limits(
 ) -> Result<TCloudTransferLimits, String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT value FROM tcloud_settings
                  WHERE key = 'max_concurrent_transfers'
-                 LIMIT 1"
+                 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
 
@@ -196,7 +211,9 @@ pub fn tcloud_set_transfer_limits(
     max_concurrent: i64,
 ) -> Result<TCloudTransferLimits, String> {
     let value = max_concurrent.clamp(1, 8);
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     set_setting(&conn, "max_concurrent_transfers", &value.to_string())?;
     drop(conn);
     crate::sync::scheduler::signal_sync_work();
@@ -211,7 +228,9 @@ pub async fn tcloud_get_global_pause(
 ) -> Result<TCloudGlobalPauseState, String> {
     let db = db.inner().clone();
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         refresh_global_pause_locked(&conn)
     })
     .await
@@ -225,39 +244,51 @@ pub fn tcloud_set_global_pause(
     until: i64,
 ) -> Result<TCloudGlobalPauseState, String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     if until == 0 || (until > 0 && until <= now) {
         set_setting(&conn, "sync_global_pause_until", "0")?;
-        let mut resume = conn.prepare(
-            "UPDATE tcloud_sync_jobs
+        let mut resume = conn
+            .prepare(
+                "UPDATE tcloud_sync_jobs
              SET paused=0,
                  pause_scope=NULL,
                  status=CASE WHEN status='paused' THEN 'pending' ELSE status END,
                  updated_at=?1
-             WHERE pause_scope='global'"
-        ).map_err(|e| e.to_string())?;
+             WHERE pause_scope='global'",
+            )
+            .map_err(|e| e.to_string())?;
         resume.bind((1, now)).map_err(|e| e.to_string())?;
         resume.next().map_err(|e| e.to_string())?;
         drop(resume);
         drop(conn);
         crate::sync::scheduler::signal_sync_work();
-        return Ok(TCloudGlobalPauseState { paused: false, until: None });
+        return Ok(TCloudGlobalPauseState {
+            paused: false,
+            until: None,
+        });
     }
 
     let effective = if until < 0 { -1 } else { until };
     set_setting(&conn, "sync_global_pause_until", &effective.to_string())?;
-    let mut pause = conn.prepare(
-        "UPDATE tcloud_sync_jobs
+    let mut pause = conn
+        .prepare(
+            "UPDATE tcloud_sync_jobs
          SET paused=1,
              pause_scope='global',
              status=CASE WHEN status IN ('pending','running') THEN 'paused' ELSE status END,
              updated_at=?1
          WHERE COALESCE(paused,0)=0
-           AND status NOT IN ('completed','cancelled','failed')"
-    ).map_err(|e| e.to_string())?;
+           AND status NOT IN ('completed','cancelled','failed')",
+        )
+        .map_err(|e| e.to_string())?;
     pause.bind((1, now)).map_err(|e| e.to_string())?;
     pause.next().map_err(|e| e.to_string())?;
 
-    Ok(TCloudGlobalPauseState { paused: true, until: Some(effective) })
+    Ok(TCloudGlobalPauseState {
+        paused: true,
+        until: Some(effective),
+    })
 }

@@ -37,10 +37,7 @@ pub fn tcloud_get_cache_info(
 }
 
 #[tauri::command]
-pub fn tcloud_remove_cached_copy(
-    db: State<'_, DbConnection>,
-    file_id: i64,
-) -> Result<(), String> {
+pub fn tcloud_remove_cached_copy(db: State<'_, DbConnection>, file_id: i64) -> Result<(), String> {
     if let Some(path) = cache::get_cached_path(db.inner(), file_id)? {
         if path.exists() {
             std::fs::remove_file(&path)
@@ -52,7 +49,9 @@ pub fn tcloud_remove_cached_copy(
     }
 
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let mut delete = conn
         .prepare("DELETE FROM tcloud_cache WHERE file_id = ?1")
@@ -61,9 +60,7 @@ pub fn tcloud_remove_cached_copy(
     delete.next().map_err(|e| e.to_string())?;
 
     let mut update = conn
-        .prepare(
-            "UPDATE tcloud_files SET local_status = 'online', updated_at = ?1 WHERE id = ?2"
-        )
+        .prepare("UPDATE tcloud_files SET local_status = 'online', updated_at = ?1 WHERE id = ?2")
         .map_err(|e| e.to_string())?;
     update.bind((1, now)).map_err(|e| e.to_string())?;
     update.bind((2, file_id)).map_err(|e| e.to_string())?;

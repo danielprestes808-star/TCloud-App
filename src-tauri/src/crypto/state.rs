@@ -414,7 +414,9 @@ mod tests {
     #[test]
     fn prompt_secrets_are_opaque_and_single_use() {
         let state = CryptoState::new(Box::new(MemoryVault::new()));
-        let token = state.stage_prompt_secret(b"correct horse battery staple").unwrap();
+        let token = state
+            .stage_prompt_secret(b"correct horse battery staple")
+            .unwrap();
         assert_ne!(token, 0);
         assert_eq!(
             state.consume_prompt_secret(token).unwrap().expose(),
@@ -427,7 +429,9 @@ mod tests {
     #[test]
     fn locking_revokes_staged_prompt_secrets() {
         let state = CryptoState::new(Box::new(MemoryVault::new()));
-        let token = state.stage_prompt_secret(b"temporary file passphrase").unwrap();
+        let token = state
+            .stage_prompt_secret(b"temporary file passphrase")
+            .unwrap();
         state.lock();
         assert!(state.consume_prompt_secret(token).is_err());
     }

@@ -332,7 +332,7 @@ export function FileExplorer({
                     setBackgroundMenu({ x: event.clientX, y: event.clientY });
                 }}
             >
-                <EmptyState onUpload={onManualUpload ?? (() => undefined)} />
+                <EmptyState onUpload={onManualUpload} />
                 {backgroundMenu && onCreateFolderRequest && (
                     <ExplorerBackgroundMenu
                         x={backgroundMenu.x}

@@ -3,8 +3,8 @@
 //! Maps File Watcher intents to durable rows in `tcloud_sync_jobs`.
 //! The actual SQL execution should use the project's existing DB connection.
 
-use serde::{Deserialize, Serialize};
 use super::watcher::{SyncIntent, SyncIntentKind};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewSyncJob {

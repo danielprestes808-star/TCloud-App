@@ -133,11 +133,28 @@ pub async fn cmd_get_encryption_capabilities(
         contract_version: CRYPTO_CONTRACT_VERSION,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         backend_build_id: CRYPTO_BACKEND_BUILD_ID.to_string(),
-        availability: if features.core_available { "ready" } else { "blocked" }.to_string(),
-        blockers: if features.core_available { Vec::new() } else { vec!["CRYPTO_BACKEND_DISABLED".to_string()] },
+        availability: if features.core_available {
+            "ready"
+        } else {
+            "blocked"
+        }
+        .to_string(),
+        blockers: if features.core_available {
+            Vec::new()
+        } else {
+            vec!["CRYPTO_BACKEND_DISABLED".to_string()]
+        },
         vault_backend: "persistent_file".to_string(),
-        readable_formats: if features.read_enabled { vec![2] } else { Vec::new() },
-        writable_formats: if features.upload_enabled { vec![2] } else { Vec::new() },
+        readable_formats: if features.read_enabled {
+            vec![2]
+        } else {
+            Vec::new()
+        },
+        writable_formats: if features.upload_enabled {
+            vec![2]
+        } else {
+            Vec::new()
+        },
         features: CryptoFeatureAvailability {
             upload: features.upload_enabled,
             read: features.read_enabled,
@@ -364,7 +381,9 @@ pub async fn cmd_import_vault_recovery(
     if crypto_state.vault_exists() && replace_existing != Some(true) {
         bundle_base64.zeroize();
         recovery_passphrase.zeroize();
-        return Err("[RECOVERY_CONFIRMATION_REQUIRED] Import would replace the existing vault".to_string());
+        return Err(
+            "[RECOVERY_CONFIRMATION_REQUIRED] Import would replace the existing vault".to_string(),
+        );
     }
     let mut bundle =
         base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &bundle_base64)
@@ -426,7 +445,10 @@ pub async fn cmd_get_file_encryption_info(
                     && matches!(
                         protection_mode.as_deref(),
                         Some("vault") | Some("vault_and_passphrase")
-                    ) => "encrypted_unlocked",
+                    ) =>
+            {
+                "encrypted_unlocked"
+            }
             "active" => "encrypted_locked",
             "verifying" => "encrypted_verifying",
             "corrupt" => "encrypted_corrupt",

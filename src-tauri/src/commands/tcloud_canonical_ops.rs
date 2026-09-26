@@ -86,6 +86,7 @@ pub struct CanonicalFileIdentity {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct CanonicalFileMutation {
     pub local_file_id: i64,
     pub core_file_id: Option<String>,
@@ -106,6 +107,7 @@ fn mapped_core_file_id(conn: &Connection, local_file_id: i64) -> Result<Option<S
     Ok(None)
 }
 
+#[allow(dead_code)]
 pub(crate) fn resolve_core_file_id(
     conn: &Connection,
     local_file_id: i64,
@@ -128,6 +130,7 @@ pub(crate) fn canonical_media_url(core_file_id: &str) -> Result<String, String> 
     Ok(format!("{}/api/v1/media/{value}", core_url()))
 }
 
+#[allow(dead_code)]
 pub(crate) fn canonical_file_url(core_file_id: &str) -> Result<String, String> {
     let value = core_file_id.trim();
     if value.is_empty() {
@@ -136,6 +139,7 @@ pub(crate) fn canonical_file_url(core_file_id: &str) -> Result<String, String> {
     Ok(format!("{}/api/v1/files/{value}", core_url()))
 }
 
+#[allow(dead_code)]
 pub(crate) fn validate_mutation_identity(
     conn: &Connection,
     input: &CanonicalFileMutation,

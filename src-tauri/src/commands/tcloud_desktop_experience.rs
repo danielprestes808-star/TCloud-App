@@ -57,7 +57,9 @@ fn write_setting(conn: &sqlite::Connection, key: &str, value: &str) -> Result<()
 }
 
 fn scalar(conn: &sqlite::Connection, sql: &str) -> i64 {
-    let Ok(mut stmt) = conn.prepare(sql) else { return 0; };
+    let Ok(mut stmt) = conn.prepare(sql) else {
+        return 0;
+    };
     if matches!(stmt.next(), Ok(sqlite::State::Row)) {
         stmt.read::<i64, _>(0).unwrap_or(0)
     } else {
@@ -66,8 +68,14 @@ fn scalar(conn: &sqlite::Connection, sql: &str) -> i64 {
 }
 
 fn table_exists(conn: &sqlite::Connection, name: &str) -> bool {
-    let Ok(mut stmt) = conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1") else { return false; };
-    if stmt.bind((1, name)).is_err() { return false; }
+    let Ok(mut stmt) =
+        conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1")
+    else {
+        return false;
+    };
+    if stmt.bind((1, name)).is_err() {
+        return false;
+    }
     matches!(stmt.next(), Ok(sqlite::State::Row))
 }
 
@@ -106,7 +114,9 @@ pub(crate) fn should_keep_running_on_close(db: &DbConnection) -> bool {
 }
 
 pub(crate) fn mark_close_notice_seen(db: &DbConnection) -> Result<bool, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let already = read_setting(&conn, KEY_CLOSE_NOTICE_SEEN)
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(false);
@@ -149,16 +159,22 @@ fn cleanup_stale_history(conn: &sqlite::Connection) -> Result<i64, String> {
 pub(crate) fn run_startup_housekeeping(db: &DbConnection) {
     let auto_days = load_preferences(db).auto_free_space_days;
     {
-        let Ok(conn) = db.lock() else { return; };
+        let Ok(conn) = db.lock() else {
+            return;
+        };
         match cleanup_stale_history(&conn) {
-            Ok(cleaned) if cleaned > 0 => log::info!("TCloud: removed {cleaned} stale transfer history row(s)."),
+            Ok(cleaned) if cleaned > 0 => {
+                log::info!("TCloud: removed {cleaned} stale transfer history row(s).")
+            }
             Ok(_) => {}
             Err(error) => log::warn!("TCloud transfer-history housekeeping: {error}"),
         }
     }
     if auto_days > 0 {
         match crate::sync::cache_manager::free_cache_older_than(db, auto_days) {
-            Ok(freed) if freed > 0 => log::info!("TCloud: automatic space cleanup freed {freed} bytes."),
+            Ok(freed) if freed > 0 => {
+                log::info!("TCloud: automatic space cleanup freed {freed} bytes.")
+            }
             Ok(_) => {}
             Err(error) => log::warn!("TCloud automatic space cleanup: {error}"),
         }
@@ -179,15 +195,28 @@ pub fn tcloud_set_desktop_preferences(
     quiet_retries: bool,
     auto_free_space_days: i64,
 ) -> Result<TCloudDesktopPreferences, String> {
-    let close_behavior = if close_behavior == "exit" { "exit" } else { "background" };
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let close_behavior = if close_behavior == "exit" {
+        "exit"
+    } else {
+        "background"
+    };
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     write_setting(&conn, KEY_CLOSE_BEHAVIOR, close_behavior)?;
-    write_setting(&conn, KEY_QUIET_RETRIES, if quiet_retries { "1" } else { "0" })?;
+    write_setting(
+        &conn,
+        KEY_QUIET_RETRIES,
+        if quiet_retries { "1" } else { "0" },
+    )?;
     let auto_days_value = auto_free_space_days.clamp(0, 365).to_string();
     write_setting(&conn, KEY_AUTO_FREE_SPACE_DAYS, auto_days_value.as_str())?;
     drop(conn);
     if auto_free_space_days > 0 {
-        let _ = crate::sync::cache_manager::free_cache_older_than(db.inner(), auto_free_space_days.clamp(1,365));
+        let _ = crate::sync::cache_manager::free_cache_older_than(
+            db.inner(),
+            auto_free_space_days.clamp(1, 365),
+        );
     }
     Ok(load_preferences(db.inner()))
 }

@@ -36,6 +36,7 @@ pub(crate) fn bind_core_file_id(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn core_file_id(
     conn: &Connection,
     local_file_id: i64,
@@ -50,6 +51,7 @@ pub(crate) fn core_file_id(
     Ok(None)
 }
 
+#[allow(dead_code)]
 pub(crate) fn validate_remote_identity_source(
     core_file_id: Option<&str>,
     telegram_chat_id: Option<i64>,

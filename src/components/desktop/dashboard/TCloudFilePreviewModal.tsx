@@ -63,7 +63,7 @@ export function TCloudFilePreviewModal({ file, onClose }: Props) {
     let cancelled = false;
     const task = pdfjsLib.getDocument({ url });
     task.promise.then((doc) => {
-      if (cancelled) { void doc.destroy(); return; }
+      if (cancelled) { void doc.cleanup(); return; }
       setPdf(doc);
     }).catch((err) => {
       if (!cancelled) setError(`Falha ao abrir PDF: ${String(err)}`);

@@ -94,60 +94,99 @@ fn scalar(conn: &sqlite::Connection, sql: &str) -> Result<i64, String> {
 }
 
 fn table_exists(conn: &sqlite::Connection, name: &str) -> bool {
-    let Ok(mut stmt)=conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1") else{return false;};
-    if stmt.bind((1,name)).is_err(){return false;}
-    matches!(stmt.next(),Ok(sqlite::State::Row))
+    let Ok(mut stmt) =
+        conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1")
+    else {
+        return false;
+    };
+    if stmt.bind((1, name)).is_err() {
+        return false;
+    }
+    matches!(stmt.next(), Ok(sqlite::State::Row))
 }
 
-
 fn actionable_sync_failures(conn: &sqlite::Connection) -> Result<i64, String> {
-    scalar(conn, "SELECT COUNT(DISTINCT j.file_id)
+    scalar(
+        conn,
+        "SELECT COUNT(DISTINCT j.file_id)
         FROM tcloud_sync_jobs j JOIN tcloud_files f ON f.id=j.file_id
         WHERE j.status='failed'
           AND COALESCE(f.sync_status,'') NOT IN ('synced','deleted','trashed')
           AND NOT EXISTS (
               SELECT 1 FROM tcloud_sync_jobs newer
               WHERE newer.file_id=j.file_id AND newer.operation=j.operation AND newer.id>j.id
-          )")
+          )",
+    )
 }
 
 fn historical_sync_failures(conn: &sqlite::Connection) -> Result<i64, String> {
-    scalar(conn, "SELECT COUNT(*)
+    scalar(
+        conn,
+        "SELECT COUNT(*)
         FROM tcloud_sync_jobs j JOIN tcloud_files f ON f.id=j.file_id
         WHERE j.status='failed' AND (
             COALESCE(f.sync_status,'') IN ('synced','deleted','trashed') OR
             EXISTS (SELECT 1 FROM tcloud_sync_jobs newer
                     WHERE newer.file_id=j.file_id AND newer.operation=j.operation AND newer.id>j.id)
-        )")
+        )",
+    )
 }
 
 fn historical_cfapi_failures(conn: &sqlite::Connection) -> Result<i64, String> {
-    if !table_exists(conn, "tcloud_cfapi_pending_ops") { return Ok(0); }
-    scalar(conn, "SELECT COUNT(*) FROM tcloud_cfapi_pending_ops p
+    if !table_exists(conn, "tcloud_cfapi_pending_ops") {
+        return Ok(0);
+    }
+    scalar(
+        conn,
+        "SELECT COUNT(*) FROM tcloud_cfapi_pending_ops p
         WHERE p.completed_at IS NULL AND p.attempts>=12
           AND EXISTS (SELECT 1 FROM tcloud_cfapi_pending_ops newer
-                      WHERE newer.file_id=p.file_id AND newer.op_type=p.op_type AND newer.id>p.id)")
+                      WHERE newer.file_id=p.file_id AND newer.op_type=p.op_type AND newer.id>p.id)",
+    )
 }
 
 fn classify_attention(operation: &str, error: Option<&str>) -> &'static str {
     let operation = operation.to_ascii_lowercase();
     let error = error.unwrap_or_default().to_ascii_lowercase();
-    if operation.starts_with("cfapi") || matches!(operation.as_str(), "rename" | "move" | "delete" | "cleanup_delete") {
+    if operation.starts_with("cfapi")
+        || matches!(
+            operation.as_str(),
+            "rename" | "move" | "delete" | "cleanup_delete"
+        )
+    {
         return "explorer";
     }
-    if error.contains("permission") || error.contains("access denied") || error.contains("acesso negado")
-        || error.contains("permiss") || error.contains("read-only") || error.contains("readonly") {
+    if error.contains("permission")
+        || error.contains("access denied")
+        || error.contains("acesso negado")
+        || error.contains("permiss")
+        || error.contains("read-only")
+        || error.contains("readonly")
+    {
         return "permissions";
     }
-    if error.contains("not found") || error.contains("no such file") || error.contains("missing")
-        || error.contains("não encontrado") || error.contains("nao encontrado") || error.contains("não existe")
-        || error.contains("nao existe") {
+    if error.contains("not found")
+        || error.contains("no such file")
+        || error.contains("missing")
+        || error.contains("não encontrado")
+        || error.contains("nao encontrado")
+        || error.contains("não existe")
+        || error.contains("nao existe")
+    {
         return "missing";
     }
-    if error.contains("timeout") || error.contains("timed out") || error.contains("network")
-        || error.contains("connection") || error.contains("conex") || error.contains("offline")
-        || error.contains("dns") || error.contains("flood_wait") || error.contains("temporar")
-        || error.contains("transport") || error.contains("telegram") {
+    if error.contains("timeout")
+        || error.contains("timed out")
+        || error.contains("network")
+        || error.contains("connection")
+        || error.contains("conex")
+        || error.contains("offline")
+        || error.contains("dns")
+        || error.contains("flood_wait")
+        || error.contains("temporar")
+        || error.contains("transport")
+        || error.contains("telegram")
+    {
         return "network";
     }
     "other"
@@ -180,11 +219,24 @@ fn actionable_attention_total(conn: &sqlite::Connection) -> Result<i64, String> 
 }
 
 fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut categories = TCloudAttentionCategories::default();
     let mut items = Vec::<TCloudAttentionItem>::new();
     let mut seen = HashSet::<i64>::new();
-    let mut conflicts = HashMap::<i64, (i64, String, String, i64, Option<String>, Option<i64>, Option<i64>)>::new();
+    let mut conflicts = HashMap::<
+        i64,
+        (
+            i64,
+            String,
+            String,
+            i64,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        ),
+    >::new();
 
     if table_exists(&conn, "tcloud_sync_conflicts") {
         let mut stmt = conn.prepare(
@@ -192,15 +244,16 @@ fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, St
              FROM tcloud_sync_conflicts WHERE resolution='pending' ORDER BY created_at DESC"
         ).map_err(|e| e.to_string())?;
         while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-            let file_id = stmt.read::<i64,_>(1).unwrap_or(0);
+            let file_id = stmt.read::<i64, _>(1).unwrap_or(0);
             let value = (
-                stmt.read::<i64,_>(0).unwrap_or(0),
-                stmt.read::<String,_>(2).unwrap_or_else(|_| "arquivo".into()),
-                stmt.read::<String,_>(3).unwrap_or_default(),
-                stmt.read::<i64,_>(4).unwrap_or(0),
-                stmt.read::<Option<String>,_>(5).unwrap_or(None),
-                stmt.read::<Option<i64>,_>(6).unwrap_or(None),
-                stmt.read::<Option<i64>,_>(7).unwrap_or(None),
+                stmt.read::<i64, _>(0).unwrap_or(0),
+                stmt.read::<String, _>(2)
+                    .unwrap_or_else(|_| "arquivo".into()),
+                stmt.read::<String, _>(3).unwrap_or_default(),
+                stmt.read::<i64, _>(4).unwrap_or(0),
+                stmt.read::<Option<String>, _>(5).unwrap_or(None),
+                stmt.read::<Option<i64>, _>(6).unwrap_or(None),
+                stmt.read::<Option<i64>, _>(7).unwrap_or(None),
             );
             conflicts.entry(file_id).or_insert(value);
         }
@@ -225,23 +278,33 @@ fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, St
     };
     let mut sync_stmt = conn.prepare(sync_sql).map_err(|e| e.to_string())?;
     while let sqlite::State::Row = sync_stmt.next().map_err(|e| e.to_string())? {
-        let file_id = sync_stmt.read::<i64,_>(1).unwrap_or(0);
-        if !seen.insert(file_id) { continue; }
-        let error = sync_stmt.read::<Option<String>,_>(5).unwrap_or(None);
-        let operation = sync_stmt.read::<String,_>(4).unwrap_or_else(|_| "sync".into());
+        let file_id = sync_stmt.read::<i64, _>(1).unwrap_or(0);
+        if !seen.insert(file_id) {
+            continue;
+        }
+        let error = sync_stmt.read::<Option<String>, _>(5).unwrap_or(None);
+        let operation = sync_stmt
+            .read::<String, _>(4)
+            .unwrap_or_else(|_| "sync".into());
         let conflict = conflicts.get(&file_id);
-        let category = if conflict.is_some() { "conflict" } else { classify_attention(&operation, error.as_deref()) };
+        let category = if conflict.is_some() {
+            "conflict"
+        } else {
+            classify_attention(&operation, error.as_deref())
+        };
         increment_category(&mut categories, category);
         items.push(TCloudAttentionItem {
-            id: sync_stmt.read::<i64,_>(0).unwrap_or(0),
+            id: sync_stmt.read::<i64, _>(0).unwrap_or(0),
             file_id,
-            file_name: sync_stmt.read::<String,_>(2).unwrap_or_else(|_| "arquivo".into()),
-            file_path: sync_stmt.read::<String,_>(3).unwrap_or_default(),
+            file_name: sync_stmt
+                .read::<String, _>(2)
+                .unwrap_or_else(|_| "arquivo".into()),
+            file_path: sync_stmt.read::<String, _>(3).unwrap_or_default(),
             source: "sync".into(),
             category: category.into(),
             operation,
             error,
-            updated_at: sync_stmt.read::<i64,_>(6).unwrap_or(0),
+            updated_at: sync_stmt.read::<i64, _>(6).unwrap_or(0),
             conflict_id: conflict.map(|value| value.0),
             remote_name: conflict.and_then(|value| value.4.clone()),
             local_size: conflict.and_then(|value| value.5),
@@ -251,8 +314,16 @@ fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, St
     drop(sync_stmt);
 
     if table_exists(&conn, "tcloud_cfapi_pending_ops") {
-        let path_expr = if table_exists(&conn, "tcloud_cfapi_items") { "COALESCE(c.relative_path,'')" } else { "''" };
-        let join_expr = if table_exists(&conn, "tcloud_cfapi_items") { "LEFT JOIN tcloud_cfapi_items c ON c.file_id=p.file_id" } else { "" };
+        let path_expr = if table_exists(&conn, "tcloud_cfapi_items") {
+            "COALESCE(c.relative_path,'')"
+        } else {
+            "''"
+        };
+        let join_expr = if table_exists(&conn, "tcloud_cfapi_items") {
+            "LEFT JOIN tcloud_cfapi_items c ON c.file_id=p.file_id"
+        } else {
+            ""
+        };
         let sql = format!(
             "SELECT p.id,p.file_id,COALESCE(f.name,'arquivo'),{path_expr},p.op_type,p.last_error,COALESCE(p.last_attempt_at,p.created_at) \
              FROM tcloud_cfapi_pending_ops p LEFT JOIN tcloud_files f ON f.id=p.file_id {join_expr} \
@@ -264,20 +335,24 @@ fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, St
         );
         let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
         while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-            let file_id = stmt.read::<i64,_>(1).unwrap_or(0);
-            if !seen.insert(file_id) { continue; }
-            let raw_id = stmt.read::<i64,_>(0).unwrap_or(0);
+            let file_id = stmt.read::<i64, _>(1).unwrap_or(0);
+            if !seen.insert(file_id) {
+                continue;
+            }
+            let raw_id = stmt.read::<i64, _>(0).unwrap_or(0);
             increment_category(&mut categories, "explorer");
             items.push(TCloudAttentionItem {
                 id: -raw_id.abs(),
                 file_id,
-                file_name: stmt.read::<String,_>(2).unwrap_or_else(|_| "arquivo".into()),
-                file_path: stmt.read::<String,_>(3).unwrap_or_default(),
+                file_name: stmt
+                    .read::<String, _>(2)
+                    .unwrap_or_else(|_| "arquivo".into()),
+                file_path: stmt.read::<String, _>(3).unwrap_or_default(),
                 source: "cfapi".into(),
                 category: "explorer".into(),
-                operation: stmt.read::<String,_>(4).unwrap_or_else(|_| "cfapi".into()),
-                error: stmt.read::<Option<String>,_>(5).unwrap_or(None),
-                updated_at: stmt.read::<i64,_>(6).unwrap_or(0),
+                operation: stmt.read::<String, _>(4).unwrap_or_else(|_| "cfapi".into()),
+                error: stmt.read::<Option<String>, _>(5).unwrap_or(None),
+                updated_at: stmt.read::<i64, _>(6).unwrap_or(0),
                 conflict_id: None,
                 remote_name: None,
                 local_size: None,
@@ -286,8 +361,14 @@ fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, St
         }
     }
 
-    for (file_id, (conflict_id, file_name, local_path, created_at, remote_name, local_size, remote_size)) in conflicts {
-        if !seen.insert(file_id) { continue; }
+    for (
+        file_id,
+        (conflict_id, file_name, local_path, created_at, remote_name, local_size, remote_size),
+    ) in conflicts
+    {
+        if !seen.insert(file_id) {
+            continue;
+        }
         increment_category(&mut categories, "conflict");
         items.push(TCloudAttentionItem {
             id: conflict_id,
@@ -306,12 +387,17 @@ fn attention_center_inner(db: &DbConnection) -> Result<TCloudAttentionCenter, St
         });
     }
 
-    items.sort_by(|a,b| b.updated_at.cmp(&a.updated_at));
+    items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let total = items.len() as i64;
     items.truncate(250);
     let mut historical = historical_sync_failures(&conn)?;
     historical += historical_cfapi_failures(&conn)?;
-    Ok(TCloudAttentionCenter { total, historical, categories, items })
+    Ok(TCloudAttentionCenter {
+        total,
+        historical,
+        categories,
+        items,
+    })
 }
 
 fn job_counts(conn: &sqlite::Connection) -> Result<(i64, i64, i64, i64, i64, i64, i64), String> {
@@ -329,21 +415,23 @@ fn job_counts(conn: &sqlite::Connection) -> Result<(i64, i64, i64, i64, i64, i64
          FROM tcloud_sync_jobs"
     ).map_err(|e| e.to_string())?;
     if !matches!(stmt.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
-        return Ok((0,0,0,0,0,0,0));
+        return Ok((0, 0, 0, 0, 0, 0, 0));
     }
     Ok((
-        stmt.read::<i64,_>(0).unwrap_or(0),
-        stmt.read::<i64,_>(1).unwrap_or(0),
-        stmt.read::<i64,_>(2).unwrap_or(0),
-        stmt.read::<i64,_>(3).unwrap_or(0),
-        stmt.read::<i64,_>(4).unwrap_or(0),
-        stmt.read::<i64,_>(5).unwrap_or(0),
-        stmt.read::<i64,_>(6).unwrap_or(0),
+        stmt.read::<i64, _>(0).unwrap_or(0),
+        stmt.read::<i64, _>(1).unwrap_or(0),
+        stmt.read::<i64, _>(2).unwrap_or(0),
+        stmt.read::<i64, _>(3).unwrap_or(0),
+        stmt.read::<i64, _>(4).unwrap_or(0),
+        stmt.read::<i64, _>(5).unwrap_or(0),
+        stmt.read::<i64, _>(6).unwrap_or(0),
     ))
 }
 
 fn sync_overview_inner(db: &DbConnection) -> Result<TCloudSyncOverview, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let (mut pending, mut running, _raw_failed, _, _, _, _) = job_counts(&conn)?;
     // Only the latest attempt for the same file+operation is actionable. Historical
     // failures that were superseded by a newer attempt must not keep the red badge alive.
@@ -354,10 +442,21 @@ fn sync_overview_inner(db: &DbConnection) -> Result<TCloudSyncOverview, String> 
         historical_failed += historical_cfapi_failures(&conn)?;
     }
     if table_exists(&conn, "tcloud_explorer_folder_ops") {
-        pending += scalar(&conn, "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='pending'")?;
-        running += scalar(&conn, "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='running'")?;
+        pending += scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='pending'",
+        )?;
+        running += scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='running'",
+        )?;
     }
-    Ok(TCloudSyncOverview { pending, running, failed, historical_failed })
+    Ok(TCloudSyncOverview {
+        pending,
+        running,
+        failed,
+        historical_failed,
+    })
 }
 
 #[tauri::command]
@@ -382,12 +481,15 @@ pub fn tcloud_attention_center_snapshot(
 }
 
 fn sync_center_inner(db: &DbConnection) -> Result<TCloudSyncCenterStats, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
-    let (mut pending, mut running, _raw_failed, mut completed, uploads, downloads, mut deletes) = job_counts(&conn)?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
+    let (mut pending, mut running, _raw_failed, mut completed, uploads, downloads, mut deletes) =
+        job_counts(&conn)?;
     let failed = actionable_attention_total(&conn)?;
 
     let mut recent = Vec::new();
-    let activity_sql=if table_exists(&conn,"tcloud_cfapi_items"){
+    let activity_sql = if table_exists(&conn, "tcloud_cfapi_items") {
         "SELECT j.id, j.file_id, f.name, COALESCE(c.relative_path,f.path), j.operation, j.status, j.error,
                 j.created_at, j.updated_at, j.bytes_total, j.bytes_transferred,
                 j.speed_bps, j.eta_seconds, j.paused, j.cancel_requested, j.priority
@@ -396,7 +498,7 @@ fn sync_center_inner(db: &DbConnection) -> Result<TCloudSyncCenterStats, String>
          WHERE j.status!='failed' OR (COALESCE(f.sync_status,'') NOT IN ('synced','deleted','trashed')
            AND NOT EXISTS (SELECT 1 FROM tcloud_sync_jobs newer WHERE newer.file_id=j.file_id AND newer.operation=j.operation AND newer.id>j.id))
          ORDER BY j.updated_at DESC LIMIT 100"
-    }else{
+    } else {
         "SELECT j.id, j.file_id, f.name, f.path, j.operation, j.status, j.error,
                 j.created_at, j.updated_at, j.bytes_total, j.bytes_transferred,
                 j.speed_bps, j.eta_seconds, j.paused, j.cancel_requested, j.priority
@@ -433,9 +535,12 @@ fn sync_center_inner(db: &DbConnection) -> Result<TCloudSyncCenterStats, String>
     // their immutable remote identity comes from the Cloud Files callback. Expose
     // them in the same Operations Center using negative ids so retry remains
     // unambiguous without changing either persistence format.
-    if table_exists(&conn,"tcloud_cfapi_pending_ops") {
+    if table_exists(&conn, "tcloud_cfapi_pending_ops") {
         pending += scalar(&conn,"SELECT COUNT(*) FROM tcloud_cfapi_pending_ops p WHERE p.completed_at IS NULL AND p.attempts < 12 AND NOT EXISTS (SELECT 1 FROM tcloud_cfapi_pending_ops newer WHERE newer.file_id=p.file_id AND newer.op_type=p.op_type AND newer.id>p.id)")?;
-        completed += scalar(&conn,"SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NOT NULL")?;
+        completed += scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NOT NULL",
+        )?;
         deletes += scalar(&conn,"SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE op_type IN ('delete','cleanup_delete')")?;
 
         let mut cf=conn.prepare(
@@ -446,28 +551,53 @@ fn sync_center_inner(db: &DbConnection) -> Result<TCloudSyncCenterStats, String>
              WHERE p.completed_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM tcloud_cfapi_pending_ops newer WHERE newer.file_id=p.file_id AND newer.op_type=p.op_type AND newer.id>p.id)
              ORDER BY COALESCE(p.last_attempt_at,p.created_at) DESC LIMIT 100"
         ).map_err(|e|e.to_string())?;
-        while let sqlite::State::Row=cf.next().map_err(|e|e.to_string())? {
-            let raw_id=cf.read::<i64,_>(0).unwrap_or(0);
-            let attempts=cf.read::<i64,_>(5).unwrap_or(0);
-            let completed_at=cf.read::<Option<i64>,_>(9).unwrap_or(None);
-            let status=if completed_at.is_some(){"completed"}else if attempts>=12{"failed"}else{"pending"};
-            recent.push(TCloudSyncActivity{
-                id:-raw_id.abs(), file_id:cf.read::<i64,_>(1).unwrap_or(0),
-                file_name:cf.read::<String,_>(2).unwrap_or_else(|_|"arquivo".into()),
-                file_path:cf.read::<String,_>(3).unwrap_or_default(), operation:cf.read::<String,_>(4).unwrap_or_else(|_|"cfapi".into()),
-                status:status.into(), error:cf.read::<Option<String>,_>(6).unwrap_or(None),
-                created_at:cf.read::<i64,_>(7).unwrap_or(0), updated_at:cf.read::<i64,_>(8).unwrap_or(0),
-                bytes_total:0,bytes_transferred:0,speed_bps:0,eta_seconds:None,paused:false,cancel_requested:false,priority:40,
+        while let sqlite::State::Row = cf.next().map_err(|e| e.to_string())? {
+            let raw_id = cf.read::<i64, _>(0).unwrap_or(0);
+            let attempts = cf.read::<i64, _>(5).unwrap_or(0);
+            let completed_at = cf.read::<Option<i64>, _>(9).unwrap_or(None);
+            let status = if completed_at.is_some() {
+                "completed"
+            } else if attempts >= 12 {
+                "failed"
+            } else {
+                "pending"
+            };
+            recent.push(TCloudSyncActivity {
+                id: -raw_id.abs(),
+                file_id: cf.read::<i64, _>(1).unwrap_or(0),
+                file_name: cf.read::<String, _>(2).unwrap_or_else(|_| "arquivo".into()),
+                file_path: cf.read::<String, _>(3).unwrap_or_default(),
+                operation: cf.read::<String, _>(4).unwrap_or_else(|_| "cfapi".into()),
+                status: status.into(),
+                error: cf.read::<Option<String>, _>(6).unwrap_or(None),
+                created_at: cf.read::<i64, _>(7).unwrap_or(0),
+                updated_at: cf.read::<i64, _>(8).unwrap_or(0),
+                bytes_total: 0,
+                bytes_transferred: 0,
+                speed_bps: 0,
+                eta_seconds: None,
+                paused: false,
+                cancel_requested: false,
+                priority: 40,
             });
         }
-        recent.sort_by(|a,b|b.updated_at.cmp(&a.updated_at));
+        recent.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         recent.truncate(100);
     }
 
-    if table_exists(&conn,"tcloud_explorer_folder_ops") {
-        pending += scalar(&conn,"SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='pending'")?;
-        running += scalar(&conn,"SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='running'")?;
-        completed += scalar(&conn,"SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='done'")?;
+    if table_exists(&conn, "tcloud_explorer_folder_ops") {
+        pending += scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='pending'",
+        )?;
+        running += scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='running'",
+        )?;
+        completed += scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='done'",
+        )?;
     }
 
     Ok(TCloudSyncCenterStats {
@@ -493,19 +623,38 @@ pub async fn tcloud_get_sync_center(
 }
 
 #[tauri::command]
-pub fn tcloud_retry_sync_job(
-    db: State<'_, DbConnection>,
-    job_id: i64,
-) -> Result<(), String> {
+pub fn tcloud_retry_sync_job(db: State<'_, DbConnection>, job_id: i64) -> Result<(), String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
-    if job_id < 0 && table_exists(&conn,"tcloud_cfapi_pending_ops") {
-        let id=job_id.saturating_abs();
+    if job_id < 0 && table_exists(&conn, "tcloud_cfapi_pending_ops") {
+        let id = job_id.saturating_abs();
+        let terminal_missing = {
+            let mut check = conn.prepare("SELECT COALESCE(last_error,'') FROM tcloud_cfapi_pending_ops WHERE id=?1 LIMIT 1")
+                .map_err(|e| e.to_string())?;
+            check.bind((1, id)).map_err(|e| e.to_string())?;
+            if matches!(check.next().map_err(|e| e.to_string())?, sqlite::State::Row) {
+                let error = check
+                    .read::<String, _>(0)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                error.starts_with("arquivo remoto nao encontrado.")
+                    || error.starts_with("arquivo remoto não encontrado.")
+                    || error.contains("origem remota nao encontrada com seguranca")
+                    || error.contains("origem remota não encontrada com segurança")
+            } else {
+                false
+            }
+        };
+        if terminal_missing {
+            return Err("Este arquivo não existe mais na origem remota. O TCloud manteve o registro em 'Precisa de atenção' e não repetirá a operação automaticamente.".into());
+        }
         let mut stmt=conn.prepare("UPDATE tcloud_cfapi_pending_ops SET attempts=0,last_attempt_at=NULL,last_error=NULL,completed_at=NULL WHERE id=?1")
             .map_err(|e|e.to_string())?;
-        stmt.bind((1,id)).map_err(|e|e.to_string())?;
-        stmt.next().map_err(|e|e.to_string())?;
+        stmt.bind((1, id)).map_err(|e| e.to_string())?;
+        stmt.next().map_err(|e| e.to_string())?;
         drop(stmt);
         drop(conn);
         #[cfg(target_os = "windows")]
@@ -530,11 +679,11 @@ pub fn tcloud_retry_sync_job(
 }
 
 #[tauri::command]
-pub fn tcloud_retry_all_sync_failures(
-    db: State<'_, DbConnection>,
-) -> Result<i64, String> {
+pub fn tcloud_retry_all_sync_failures(db: State<'_, DbConnection>) -> Result<i64, String> {
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let count = actionable_sync_failures(&conn)?;
     if count > 0 {
         let mut stmt = conn.prepare(
@@ -548,11 +697,13 @@ pub fn tcloud_retry_all_sync_failures(
                                    WHERE newer.file_id=j.file_id AND newer.operation=j.operation AND newer.id>j.id)
              )"
         ).map_err(|e|e.to_string())?;
-        stmt.bind((1,now)).map_err(|e|e.to_string())?;
-        stmt.next().map_err(|e|e.to_string())?;
+        stmt.bind((1, now)).map_err(|e| e.to_string())?;
+        stmt.next().map_err(|e| e.to_string())?;
     }
     drop(conn);
-    if count > 0 { crate::sync::scheduler::signal_sync_work(); }
+    if count > 0 {
+        crate::sync::scheduler::signal_sync_work();
+    }
     Ok(count)
 }
 
@@ -560,7 +711,9 @@ pub fn tcloud_retry_all_sync_failures(
 pub fn tcloud_cleanup_stale_attention(
     db: State<'_, DbConnection>,
 ) -> Result<TCloudAttentionCleanupResult, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let cleaned_sync_jobs = historical_sync_failures(&conn)?;
     conn.execute("DELETE FROM tcloud_sync_jobs
@@ -572,42 +725,56 @@ pub fn tcloud_cleanup_stale_attention(
     let mut cleaned_cfapi_ops = 0;
     if table_exists(&conn, "tcloud_cfapi_pending_ops") {
         cleaned_cfapi_ops = historical_cfapi_failures(&conn)?;
-        conn.execute("DELETE FROM tcloud_cfapi_pending_ops
+        conn.execute(
+            "DELETE FROM tcloud_cfapi_pending_ops
             WHERE completed_at IS NULL AND attempts>=12
               AND EXISTS (SELECT 1 FROM tcloud_cfapi_pending_ops newer
                           WHERE newer.file_id=tcloud_cfapi_pending_ops.file_id
                             AND newer.op_type=tcloud_cfapi_pending_ops.op_type
-                            AND newer.id>tcloud_cfapi_pending_ops.id)")
-            .map_err(|e|e.to_string())?;
+                            AND newer.id>tcloud_cfapi_pending_ops.id)",
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     let remaining = actionable_attention_total(&conn)?;
-    Ok(TCloudAttentionCleanupResult { cleaned_sync_jobs, cleaned_cfapi_ops, remaining })
+    Ok(TCloudAttentionCleanupResult {
+        cleaned_sync_jobs,
+        cleaned_cfapi_ops,
+        remaining,
+    })
 }
 
 #[tauri::command]
-pub fn tcloud_clear_completed_jobs(
-    db: State<'_, DbConnection>,
-) -> Result<i64, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn tcloud_clear_completed_jobs(db: State<'_, DbConnection>) -> Result<i64, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let count = scalar(
         &conn,
-        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status = 'completed'"
+        "SELECT COUNT(*) FROM tcloud_sync_jobs WHERE status = 'completed'",
     )?;
 
     conn.execute("DELETE FROM tcloud_sync_jobs WHERE status = 'completed'")
         .map_err(|e| e.to_string())?;
-    let mut total=count;
-    if table_exists(&conn,"tcloud_cfapi_pending_ops") {
-        let cf_count=scalar(&conn,"SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NOT NULL")?;
-        conn.execute("DELETE FROM tcloud_cfapi_pending_ops WHERE completed_at IS NOT NULL").map_err(|e|e.to_string())?;
-        total+=cf_count;
+    let mut total = count;
+    if table_exists(&conn, "tcloud_cfapi_pending_ops") {
+        let cf_count = scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_cfapi_pending_ops WHERE completed_at IS NOT NULL",
+        )?;
+        conn.execute("DELETE FROM tcloud_cfapi_pending_ops WHERE completed_at IS NOT NULL")
+            .map_err(|e| e.to_string())?;
+        total += cf_count;
     }
-    if table_exists(&conn,"tcloud_explorer_folder_ops") {
-        let folder_count=scalar(&conn,"SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='done'")?;
-        conn.execute("DELETE FROM tcloud_explorer_folder_ops WHERE status='done'").map_err(|e|e.to_string())?;
-        total+=folder_count;
+    if table_exists(&conn, "tcloud_explorer_folder_ops") {
+        let folder_count = scalar(
+            &conn,
+            "SELECT COUNT(*) FROM tcloud_explorer_folder_ops WHERE status='done'",
+        )?;
+        conn.execute("DELETE FROM tcloud_explorer_folder_ops WHERE status='done'")
+            .map_err(|e| e.to_string())?;
+        total += folder_count;
     }
 
     Ok(total)

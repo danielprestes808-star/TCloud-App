@@ -4,6 +4,7 @@ import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { TelegramFile } from '../../../types';
 import {
     forgetThumbnail,
+    cancelQueuedThumbnailLoad,
     getCachedThumbnail,
     loadThumbnail,
     getCachedPreview,
@@ -16,6 +17,7 @@ import { VideoMetaBadge } from '../../shared/VideoMetaBadge';
 import { Skeleton } from '../../ui';
 import { EncryptionBadge } from '../../shared/EncryptionBadge';
 import { FileAvailabilityBadge } from './FileAvailabilityBadge';
+import { warmTCloudMedia } from '../../../services/tcloudMediaManager';
 
 interface FileCardProps {
     file: TelegramFile;
@@ -104,17 +106,25 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
     const isFileDragOver = isFolder && isOver && dragActive?.data.current?.kind === 'telegram-files';
 
     // Lazy video metadata badge (.mp4 only)
+    // TCLOUD_PERF_83_VIDEO_DECORATION
+    // MP4 metadata may require up to 2 MB of Telegram traffic. Do not run that
+    // for every card while a folder is merely rendering; fetch it only when the
+    // user hovers/selects the video.
+    const loadVideoDecoration = hoverPreviewActive || isSelected;
     const { data: videoMeta, isLoading: videoMetaLoading } = useVideoMetadata(
         file.id,
         file.folder_id ?? null,
         file.name,
+        loadVideoDecoration,
     );
 
-    // Cached HLS variants
+    // Cached HLS variants are also decoration and should not add native IPC work
+    // to the critical folder-paint path.
     const { data: cachedVariants } = useCachedVariants(
         file.id,
         file.folder_id ?? null,
         file.name,
+        loadVideoDecoration,
     );
     const cachedQualities = (cachedVariants || []).filter(v => v.available).map(v => v.quality);
 
@@ -140,11 +150,17 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
                     observer.disconnect();
                 }
             },
-            { rootMargin: '1200px 0px' },
+            { rootMargin: '360px 0px' },
         );
         observer.observe(element);
         return () => observer.disconnect();
     }, [file.id, file.name, isFolder]);
+
+    // TCLOUD_MEDIA_MANAGER_90_CARD_WARM
+    useEffect(() => {
+        if (isFolder || !thumbnailVisible) return;
+        warmTCloudMedia(file, activeFolderId ?? null, false);
+    }, [activeFolderId, file, isFolder, thumbnailVisible]);
 
     // Lazy load thumbnail for image files
     useEffect(() => {
@@ -180,6 +196,9 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
 
         return () => {
             cancelled = true;
+            // If virtualization removed this card before its thumbnail started,
+            // drop the queued request so it cannot delay the cards now on screen.
+            cancelQueuedThumbnailLoad(file.id, effectiveFolderId);
         };
     }, [file.id, file.name, effectiveFolderId, isFolder, thumbnailVisible]);
 
@@ -223,7 +242,7 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
             window.clearTimeout(hoverTimerRef.current);
         }
 
-        // NÃ£o faÃ§a nenhum download pesado durante uma passagem rÃ¡pida do mouse.
+        // Não faÃ§a nenhum download pesado durante uma passagem rÃ¡pida do mouse.
         hoverTimerRef.current = window.setTimeout(() => {
             hoverTimerRef.current = null;
 
@@ -244,7 +263,7 @@ export const FileCard = memo(function FileCard({ file, onDelete, onDownload, onP
             /*
              * Imagens podem buscar a prÃ©via completa.
              *
-             * Para vÃ­deo cloud-only, evitamos baixar centenas de MB sÃ³ porque
+             * Para vÃ­deo cloud-only, evitamos baixar centenas de MB só porque
              * o usuÃ¡rio pousou o mouse. VÃ­deos jÃ¡ locais/cached podem tocar
              * imediatamente. O player completo continua responsÃ¡vel pelo
              * streaming de vÃ­deos remotos.

@@ -114,6 +114,14 @@ function sameSyncSnapshot(a: TCloudSyncCenterStats | null, b: TCloudSyncCenterSt
   });
 }
 
+function isTerminalRemoteMissing(job: TCloudSyncActivity) {
+  const error = (job.error || '').toLocaleLowerCase('pt-BR');
+  return error.startsWith('arquivo remoto nao encontrado.')
+    || error.startsWith('arquivo remoto não encontrado.')
+    || error.includes('origem remota nao encontrada com seguranca')
+    || error.includes('origem remota não encontrada com segurança');
+}
+
 export function TCloudSyncCenterModal({ isOpen, onClose }: Props) {
   const [data, setData] = useState<TCloudSyncCenterStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -179,7 +187,7 @@ export function TCloudSyncCenterModal({ isOpen, onClose }: Props) {
         tone: "danger",
         icon: AlertTriangle,
         title: `${data?.failed ?? 0} ${(data?.failed ?? 0) === 1 ? "item precisa" : "itens precisam"} de atenção`,
-        detail: "O TCloud tentou resolver sozinho. Você pode tentar novamente agora.",
+        detail: "O TCloud isolou estes itens para não bloquear o restante da sincronização.",
       };
     }
     if (activeCount > 0) {
@@ -206,7 +214,7 @@ export function TCloudSyncCenterModal({ isOpen, onClose }: Props) {
   }
 
   async function retryAllFailed() {
-    const failed = (data?.recent ?? []).filter((job) => job.status === "failed");
+    const failed = (data?.recent ?? []).filter((job) => job.status === "failed" && !isTerminalRemoteMissing(job));
     if (failed.length === 0) return;
     setRetryingAll(true);
     try {
@@ -238,6 +246,7 @@ export function TCloudSyncCenterModal({ isOpen, onClose }: Props) {
     await refresh();
   }
 
+  const retryableFailedCount = (data?.recent ?? []).filter((job) => job.status === 'failed' && !isTerminalRemoteMissing(job)).length;
   const StateIcon = state.icon;
 
   return (
@@ -267,7 +276,7 @@ export function TCloudSyncCenterModal({ isOpen, onClose }: Props) {
               <strong>{state.title}</strong>
               <span>{state.detail}</span>
             </div>
-            {(data?.failed ?? 0) > 0 && (
+            {retryableFailedCount > 0 && (
               <button type="button" className="tcloud-sync-primary-action" disabled={retryingAll} onClick={() => void retryAllFailed()}>
                 <RotateCcw className={`h-3.5 w-3.5 ${retryingAll ? "animate-spin" : ""}`} />
                 Tentar novamente
@@ -356,7 +365,8 @@ export function TCloudSyncCenterModal({ isOpen, onClose }: Props) {
                   <div className="tcloud-sync-item-actions">
                     {running && !job.cancel_requested && <button type="button" onClick={() => void pause(job)}><Pause className="h-3.5 w-3.5" /> Pausar</button>}
                     {paused && <button type="button" onClick={() => void resume(job)}><Play className="h-3.5 w-3.5" /> Continuar</button>}
-                    {failed && <button type="button" className="is-primary" onClick={() => void retry(job)}><RotateCcw className="h-3.5 w-3.5" /> Tentar novamente</button>}
+                    {failed && !isTerminalRemoteMissing(job) && <button type="button" className="is-primary" onClick={() => void retry(job)}><RotateCcw className="h-3.5 w-3.5" /> Tentar novamente</button>}
+                    {failed && isTerminalRemoteMissing(job) && <span className="tcloud-terminal-attention">Não encontrado na nuvem</span>}
                     {!["completed", "cancelled", "failed"].includes(job.status) && !job.cancel_requested && (
                       <button type="button" className="is-icon" title="Cancelar" onClick={() => void cancel(job)}><Square className="h-3.5 w-3.5" /></button>
                     )}

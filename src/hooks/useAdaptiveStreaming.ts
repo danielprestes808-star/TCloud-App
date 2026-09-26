@@ -572,7 +572,7 @@ export function useAdaptiveStreaming(
             }
 
             console.log('[AdaptiveStreaming] 📐 onSegment: track=', id, 'sample=', sampleNum, 'bytes=', buffer.byteLength);
-            
+
             if (!appendQueuesRef.current[id]) {
                 appendQueuesRef.current[id] = [];
             }
@@ -1064,7 +1064,7 @@ export function useAdaptiveStreaming(
             abortFetch();
             abortDiscovery();
             setDynamicFallback(true);
-        }, 10000);
+        }, 3000);
 
         function beginMoovDiscovery() {
             const ctrl = new AbortController();

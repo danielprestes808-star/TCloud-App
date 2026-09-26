@@ -30,14 +30,16 @@ pub fn resolve_or_queue_download(
     }
 
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let mut exists = conn
         .prepare(
             "SELECT id FROM tcloud_sync_jobs
              WHERE file_id = ?1 AND operation = 'download'
                AND status IN ('pending','running')
-             LIMIT 1"
+             LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
     exists.bind((1, file_id)).map_err(|e| e.to_string())?;
@@ -65,7 +67,7 @@ pub fn resolve_or_queue_download(
         .prepare(
             "UPDATE tcloud_files
              SET local_status = 'online', sync_status = 'downloading', updated_at = ?1
-             WHERE id = ?2"
+             WHERE id = ?2",
         )
         .map_err(|e| e.to_string())?;
     update.bind((1, now)).map_err(|e| e.to_string())?;

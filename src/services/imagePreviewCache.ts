@@ -213,6 +213,18 @@ const promoteQueuedPreview = (key: string) => {
     previewForegroundQueue.unshift(task);
 };
 
+// TCLOUD_PERF_83_THUMB_PROMOTION
+// When a speculative thumbnail becomes visible, move it to the front instead
+// of making the user wait for the single background slot.
+const promoteQueuedThumbnail = (key: string) => {
+    const index = thumbnailBackgroundQueue.findIndex((task) => task.key === key);
+    if (index < 0) return;
+    const [task] = thumbnailBackgroundQueue.splice(index, 1);
+    if (!task) return;
+    task.background = false;
+    thumbnailForegroundQueue.unshift(task);
+};
+
 const enqueueInvoke = (
     command: 'cmd_get_preview' | 'cmd_get_thumbnail',
     fileId: number,
@@ -231,6 +243,9 @@ const enqueueInvoke = (
         if (command === 'cmd_get_preview' && !background) {
             promoteQueuedPreview(key);
             pumpPreviewQueue();
+        } else if (command === 'cmd_get_thumbnail' && !background) {
+            promoteQueuedThumbnail(key);
+            pumpThumbnailQueue();
         }
         return existing;
     }
@@ -337,6 +352,16 @@ export const forgetPreview = (fileId: number, folderId?: number | null) => {
 
 export const forgetThumbnail = (fileId: number, folderId?: number | null) => {
     thumbnailCache.delete(getImageCacheKey(fileId, folderId));
+};
+
+export const cancelQueuedThumbnailLoad = (fileId: number, folderId?: number | null) => {
+    const key = getImageCacheKey(fileId, folderId);
+    for (const queue of [thumbnailForegroundQueue, thumbnailBackgroundQueue]) {
+        const index = queue.findIndex((task) => task.key === key);
+        if (index < 0) continue;
+        const [task] = queue.splice(index, 1);
+        task?.cancel();
+    }
 };
 
 const trimCache = (cache: Map<string, CacheEntry>, keep: number) => {

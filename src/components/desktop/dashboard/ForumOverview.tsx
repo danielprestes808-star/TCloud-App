@@ -14,6 +14,7 @@ export function ForumOverview({
   onWarmFolder,
   onCreateFolder,
 }: ForumOverviewProps) {
+  const isDeviceRoot = forum.name === 'Meu computador' || forum.name === 'Meu telefone';
   return (
     <section className="tcloud-forum-overview">
       <header className="tcloud-forum-overview-header">
@@ -29,9 +30,11 @@ export function ForumOverview({
       {forum.topics.length === 0 ? (
         <div className="tcloud-forum-overview-empty">
           <Folder className="h-10 w-10" />
-          <strong>Nenhuma subpasta aqui</strong>
-          <span>Use Nova pasta para organizar seus arquivos como no Explorador do Windows.</span>
-          <button type="button" onClick={onCreateFolder}><Plus className="h-4 w-4" /> Nova pasta</button>
+          <strong>{isDeviceRoot ? `Nenhum arquivo em ${forum.name}` : 'Nenhuma subpasta aqui'}</strong>
+          <span>{isDeviceRoot
+            ? 'Entre na mesma conta no dispositivo e ative uma pasta para backup. Ela aparecerá aqui automaticamente.'
+            : 'Use Nova pasta para organizar seus arquivos como no Explorador do Windows.'}</span>
+          {!isDeviceRoot && <button type="button" onClick={onCreateFolder}><Plus className="h-4 w-4" /> Nova pasta</button>}
         </div>
       ) : (
         <div className="tcloud-forum-overview-grid">

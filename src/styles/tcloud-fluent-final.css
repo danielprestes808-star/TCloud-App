@@ -1,0 +1,361 @@
+.tcloud-settings-page-shell{inset:0 0 0 244px!important;background:var(--color-app-canvas)!important;backdrop-filter:none!important}
+.tcloud-settings-page{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;border:0!important;border-radius:0!important;box-shadow:none!important}
+.tcloud-settings-page-shell>.tcloud-settings-page{transform:none!important}
+.tcloud-settings-header{min-height:64px;padding-inline:20px!important;background:rgb(14 16 22/.82)!important;backdrop-filter:blur(16px)}
+@media(max-width:920px){.tcloud-settings-page-shell{inset:0!important}}
+.tcloud-density-control{display:flex;align-items:center;gap:8px;margin-left:auto;margin-right:10px;color:var(--color-app-text-secondary);font-size:11px}.tcloud-density-control select{height:32px;padding:0 8px;border-radius:5px!important}
+:root[data-density="compact"] .tcloud-explorer-nav-item{min-height:32px!important}:root[data-density="compact"] .tcloud-explorer-content{padding:12px 16px!important}:root[data-density="compact"] .tcloud-file-grid{gap:8px!important;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+
+/* TCloud Fluent Workspace v3 — a new composition, not a skin over the old dashboard. */
+:root {
+  --tcloud-v3-accent: #9d7cff;
+  --tcloud-v3-teal: #67d7c4;
+  --tcloud-v3-panel: #151922;
+  --tcloud-v3-panel-2: #191e29;
+  --tcloud-v3-line: rgb(255 255 255 / .09);
+}
+
+.tcloud-explorer-root,
+.tcloud-explorer-root button,
+.tcloud-explorer-root input,
+.tcloud-explorer-root select {
+  font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif !important;
+}
+.tcloud-explorer-root h1,
+.tcloud-explorer-root h2,
+.tcloud-explorer-root h3,
+.tcloud-explorer-root strong {
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif !important;
+  letter-spacing: 0 !important;
+}
+
+.tcloud-explorer-sidebar:not(.is-collapsed) {
+  width: 256px !important;
+  border-right: 1px solid var(--tcloud-v3-line) !important;
+  background: rgb(12 14 19 / .96) !important;
+}
+.tcloud-explorer-brand {
+  min-height: 64px !important;
+  padding: 10px 16px !important;
+  border-bottom: 1px solid var(--tcloud-v3-line) !important;
+}
+.tcloud-explorer-brand img {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 7px !important;
+}
+.tcloud-explorer-brand strong { font-size: 14px !important; font-weight: 650 !important; }
+.tcloud-explorer-brand small { margin-top: 1px !important; font-size: 10px !important; }
+.tcloud-sidebar-primary-action { padding: 12px 14px !important; }
+.tcloud-sidebar-primary-action button {
+  height: 42px !important;
+  justify-content: flex-start !important;
+  border: 1px solid rgb(157 124 255 / .35) !important;
+  border-radius: 6px !important;
+  padding-inline: 14px !important;
+  background: rgb(157 124 255 / .12) !important;
+  color: #eeeaff !important;
+}
+.tcloud-sidebar-primary-action button:hover { background: rgb(157 124 255 / .19) !important; }
+.tcloud-explorer-nav-item { border-radius: 4px !important; }
+.tcloud-explorer-nav-item.is-active {
+  background: rgb(157 124 255 / .14) !important;
+  color: #d9ceff !important;
+}
+.tcloud-explorer-nav-item.is-active::before { background: var(--tcloud-v3-accent) !important; }
+.tcloud-device-root-card {
+  min-height: 62px !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+}
+.tcloud-device-root-card:hover,
+.tcloud-device-root-card.is-active { border-color: var(--tcloud-v3-line) !important; background: rgb(255 255 255 / .045) !important; }
+
+.tcloud-home-v3 {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  grid-template-areas:
+    "heading heading"
+    "health system"
+    "recent locations"
+    "recent favorites"
+    "files files";
+  align-content: start;
+  gap: 12px !important;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 22px 26px 30px !important;
+  background:
+    radial-gradient(circle at 82% 4%, rgb(157 124 255 / .08), transparent 28%),
+    var(--color-app-canvas) !important;
+}
+.tcloud-home-v3 > .tcloud-home-compact-header { grid-area: heading; }
+.tcloud-home-v3 > .tcloud-home-health { grid-area: health; }
+.tcloud-home-v3 > .tcloud-home-system-strip { grid-area: system; }
+.tcloud-home-v3 > .tcloud-home-locations { grid-area: locations; }
+.tcloud-home-v3 > .tcloud-quick-access { grid-area: recent; }
+.tcloud-home-v3 > .tcloud-favorite-strip { grid-area: favorites; }
+.tcloud-home-v3 > .tcloud-all-files-section { grid-area: files; }
+
+.tcloud-home-v3 .tcloud-home-compact-header {
+  min-height: 58px !important;
+  margin: 0 0 2px !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+.tcloud-home-v3 .tcloud-home-compact-header h2 { font-size: 26px !important; font-weight: 620 !important; }
+.tcloud-home-v3 .tcloud-home-compact-header p { margin-top: 3px !important; font-size: 12px !important; }
+.tcloud-home-v3 .tcloud-home-settings-button { height: 32px !important; border-radius: 5px !important; }
+
+.tcloud-home-v3 .tcloud-home-health,
+.tcloud-home-v3 .tcloud-home-system-strip,
+.tcloud-home-v3 .tcloud-home-locations,
+.tcloud-home-v3 .tcloud-quick-access,
+.tcloud-home-v3 .tcloud-favorite-strip,
+.tcloud-home-v3 .tcloud-all-files-section {
+  margin: 0 !important;
+  border: 1px solid var(--tcloud-v3-line) !important;
+  border-radius: 7px !important;
+  background: rgb(21 25 34 / .88) !important;
+  box-shadow: 0 12px 30px rgb(0 0 0 / .12) !important;
+  backdrop-filter: blur(12px);
+}
+.tcloud-home-v3 .tcloud-home-health {
+  min-height: 70px !important;
+  border-left: 3px solid var(--tcloud-v3-accent) !important;
+  padding: 12px 14px !important;
+}
+.tcloud-home-v3 .tcloud-home-health.is-danger { border-left-color: var(--color-app-danger) !important; }
+.tcloud-home-v3 .tcloud-home-health-icon { width: 34px !important; height: 34px !important; background: rgb(157 124 255 / .12) !important; }
+.tcloud-home-v3 .tcloud-home-health-copy > strong { font-size: 12px !important; }
+.tcloud-home-v3 .tcloud-home-health-copy > span { margin-top: 3px !important; font-size: 10px !important; }
+.tcloud-home-v3 .tcloud-home-system-strip {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  min-height: 70px;
+  overflow: hidden;
+}
+.tcloud-home-v3 .tcloud-home-system-strip > * { min-height: 34px !important; padding: 7px 12px !important; }
+.tcloud-home-v3 .tcloud-home-system-strip strong { font-size: 10px !important; }
+.tcloud-home-v3 .tcloud-home-system-strip small { font-size: 8.5px !important; }
+
+.tcloud-home-v3 .tcloud-home-locations {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 0 !important;
+  padding: 6px !important;
+}
+.tcloud-home-v3 .tcloud-home-locations > button {
+  min-height: 49px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--color-app-border-subtle) !important;
+  border-radius: 4px !important;
+  padding: 8px 10px !important;
+}
+.tcloud-home-v3 .tcloud-home-locations > button:last-child { border-bottom: 0 !important; }
+.tcloud-home-v3 .tcloud-home-locations strong { font-size: 11px !important; }
+.tcloud-home-v3 .tcloud-home-locations small { font-size: 9px !important; }
+
+.tcloud-home-v3 .tcloud-quick-access { min-height: 360px; padding: 16px !important; }
+.tcloud-home-v3 .tcloud-section-heading { min-height: 36px !important; margin: 0 0 12px !important; }
+.tcloud-home-v3 .tcloud-section-heading h3 { font-size: 15px !important; font-weight: 610 !important; }
+.tcloud-home-v3 .tcloud-section-heading span { font-size: 10px !important; }
+.tcloud-home-v3 .tcloud-desktop-recent-carousel {
+  height: 224px !important;
+  min-height: 224px !important;
+  margin: 0 0 12px !important;
+  overflow: hidden;
+  border: 1px solid var(--tcloud-v3-line) !important;
+  border-radius: 5px !important;
+  background: #090b10 !important;
+}
+.tcloud-home-v3 .tcloud-desktop-recent-carousel > button { height: 196px !important; }
+.tcloud-home-v3 .tcloud-desktop-recent-carousel img { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+.tcloud-home-v3 .tcloud-desktop-recent-carousel > div { height: 28px !important; }
+.tcloud-carousel-fallback {
+  display: flex !important;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--color-app-text-tertiary);
+  background: linear-gradient(135deg, rgb(157 124 255 / .10), rgb(103 215 196 / .04));
+}
+.tcloud-carousel-fallback small { font-size: 10px !important; }
+.tcloud-home-v3 .tcloud-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 7px !important; }
+.tcloud-home-v3 .tcloud-quick-card { min-height: 52px !important; border: 1px solid transparent !important; }
+.tcloud-home-v3 .tcloud-quick-card:hover { border-color: var(--tcloud-v3-line) !important; }
+
+.tcloud-home-v3 .tcloud-favorite-strip { align-self: start; padding: 13px !important; }
+.tcloud-home-v3 .tcloud-favorite-strip-list { display: grid !important; grid-template-columns: 1fr !important; }
+.tcloud-home-v3 .tcloud-all-files-section { padding: 15px !important; }
+.tcloud-home-v3 .tcloud-home-file-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 1px !important;
+  overflow: hidden;
+  border: 1px solid var(--tcloud-v3-line);
+  border-radius: 5px;
+  background: var(--tcloud-v3-line);
+  padding: 0 !important;
+}
+.tcloud-home-v3 .tcloud-home-file-tile {
+  min-height: 56px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--tcloud-v3-panel) !important;
+}
+.tcloud-home-v3 .tcloud-home-file-tile:hover { background: var(--tcloud-v3-panel-2) !important; }
+.tcloud-home-v3 .tcloud-home-file-icon { border-radius: 4px !important; }
+
+@media (max-width: 1180px) {
+  .tcloud-home-v3 { grid-template-columns: minmax(0, 1fr) 270px; padding-inline: 18px !important; }
+  .tcloud-home-v3 .tcloud-home-file-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 900px) {
+  .tcloud-explorer-sidebar:not(.is-collapsed) { width: 220px !important; }
+  .tcloud-home-v3 {
+    display: flex !important;
+    flex-direction: column;
+    padding: 16px !important;
+  }
+  .tcloud-home-v3 .tcloud-home-locations { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+/* Workspace v4: enforce the agreed Windows/Explorer language on the real root. */
+.desktop-shell,
+.desktop-shell button,
+.desktop-shell input,
+.desktop-shell select,
+.desktop-shell textarea,
+.desktop-shell h1,
+.desktop-shell h2,
+.desktop-shell h3,
+.desktop-shell strong {
+  font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif !important;
+  letter-spacing: 0 !important;
+}
+.desktop-shell button { border-radius: 4px !important; }
+.desktop-shell .tcloud-main-pane { background: #0c0f14 !important; }
+.desktop-shell .tcloud-home-v3 {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 18px 22px 26px !important;
+  background: #0c0f14 !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-compact-header h2 {
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+}
+.desktop-shell .tcloud-home-settings-button { display: none !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-home-compact-header {
+  align-items: center !important;
+  border-bottom: 1px solid var(--tcloud-v3-line) !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-health,
+.desktop-shell .tcloud-home-v3 .tcloud-home-system-strip,
+.desktop-shell .tcloud-home-v3 .tcloud-home-locations,
+.desktop-shell .tcloud-home-v3 .tcloud-quick-access,
+.desktop-shell .tcloud-home-v3 .tcloud-favorite-strip,
+.desktop-shell .tcloud-home-v3 .tcloud-all-files-section {
+  border-radius: 4px !important;
+  background: #12161d !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-quick-access { min-height: 330px !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-desktop-recent-carousel {
+  height: 190px !important;
+  min-height: 190px !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-desktop-recent-carousel > button { height: 162px !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)) !important;
+  border-radius: 2px !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-tile { min-height: 52px !important; }
+.desktop-shell .tcloud-explorer-topbar,
+.desktop-shell .tcloud-explorer-commandbar,
+.desktop-shell .tcloud-explorer-statusbar { background: #11151c !important; }
+.desktop-shell .tcloud-explorer-sidebar:not(.is-collapsed) { width: 248px !important; }
+
+/* Explorer composition: folders first, compact carousel, then a real file list. */
+.desktop-shell .tcloud-home-v3 {
+  grid-template-columns: minmax(0, 1fr) 360px !important;
+  grid-template-areas: "heading heading" "health system" "locations locations" "recent recent" "favorites favorites" "files files" !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-locations {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  border: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-locations > button {
+  min-height: 72px !important;
+  border: 1px solid var(--tcloud-v3-line) !important;
+  border-radius: 4px !important;
+  padding: 12px 14px !important;
+  background: #12161d !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-locations > button:hover { border-color: rgb(157 124 255 / .5) !important; background: #181d27 !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-home-locations > button > svg { width: 24px !important; height: 24px !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-quick-access {
+  display: grid !important;
+  grid-template-columns: minmax(360px, .8fr) minmax(0, 1.2fr);
+  grid-template-rows: auto 190px;
+  gap: 0 14px !important;
+  min-height: 244px !important;
+  padding: 14px !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-quick-access > .tcloud-section-heading { grid-column: 1 / -1; }
+.desktop-shell .tcloud-home-v3 .tcloud-desktop-recent-carousel { grid-column: 1; grid-row: 2; margin: 0 !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-quick-grid { grid-column: 2; grid-row: 2; align-content: start; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-quick-card {
+  min-height: 58px !important;
+  border: 1px solid var(--tcloud-v3-line) !important;
+  border-radius: 3px !important;
+  background: #151a23 !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-grid {
+  display: block !important;
+  border: 1px solid var(--tcloud-v3-line) !important;
+  background: transparent !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-tile {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: 34px minmax(220px, 1fr) 28px !important;
+  border-bottom: 1px solid var(--tcloud-v3-line) !important;
+  padding: 7px 10px !important;
+}
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-tile:last-child { border-bottom: 0 !important; }
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-copy { display: grid; grid-template-columns: minmax(180px, 1fr) 100px; align-items: center; gap: 12px; }
+.desktop-shell .tcloud-home-v3 .tcloud-home-file-copy small { margin: 0 !important; text-align: right; }
+@media (max-width: 1050px) {
+  .desktop-shell .tcloud-home-v3 { grid-template-columns: 1fr !important; grid-template-areas: "heading" "health" "system" "locations" "recent" "favorites" "files" !important; }
+  .desktop-shell .tcloud-home-v3 .tcloud-home-locations { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .desktop-shell .tcloud-home-v3 .tcloud-quick-access { display: block !important; }
+  .desktop-shell .tcloud-home-v3 .tcloud-quick-grid { margin-top: 8px; }
+}
+
+.desktop-shell .tcloud-settings-page-shell {
+  position: absolute !important;
+  inset: 0 0 0 248px !important;
+  z-index: 40 !important;
+  background: #0c0f14 !important;
+}
+.desktop-shell .tcloud-settings-page {
+  border-radius: 0 !important;
+  background: #0c0f14 !important;
+}
+.desktop-shell .tcloud-settings-header { min-height: 58px !important; background: #11151c !important; }
+@media (max-width: 900px) {
+  .desktop-shell .tcloud-settings-page-shell { left: 220px !important; }
+}

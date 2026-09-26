@@ -15,10 +15,20 @@ fn generate_tcloud_credentials() {
     if let Ok(contents) = fs::read_to_string(".env.tcloud") {
         for raw_line in contents.lines() {
             let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
-            let Some((key, value)) = line.split_once('=') else { continue; };
-            let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
-            if value.is_empty() { continue; }
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let value = value
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string();
+            if value.is_empty() {
+                continue;
+            }
             match key.trim() {
                 "TCLOUD_TELEGRAM_API_ID" if api_id.is_none() => api_id = Some(value),
                 "TCLOUD_TELEGRAM_API_HASH" if api_hash.is_none() => api_hash = Some(value),
@@ -36,7 +46,8 @@ fn generate_tcloud_credentials() {
         api_id.as_deref().map(rust_string_literal).map(|v| format!("Some({v})")).unwrap_or_else(|| "None".into()),
         api_hash.as_deref().map(rust_string_literal).map(|v| format!("Some({v})")).unwrap_or_else(|| "None".into()),
     );
-    fs::write(out_dir.join("tcloud_credentials.rs"), body).expect("failed to generate TCloud credentials source");
+    fs::write(out_dir.join("tcloud_credentials.rs"), body)
+        .expect("failed to generate TCloud credentials source");
 }
 
 fn configure_windows_native_helpers() {

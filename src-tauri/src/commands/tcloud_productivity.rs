@@ -114,6 +114,7 @@ pub fn tcloud_pc_known_folders() -> Vec<PcKnownFolder> {
             vec!["Desktop", "Área de Trabalho"],
         ),
         ("documents", "Documentos", vec!["Documents", "Documentos"]),
+        ("downloads", "Downloads", vec!["Downloads"]),
         ("pictures", "Imagens", vec!["Pictures", "Imagens"]),
         ("videos", "Vídeos", vec!["Videos", "Vídeos"]),
         ("music", "Músicas", vec!["Music", "Músicas"]),

@@ -18,13 +18,15 @@ pub fn tcloud_set_job_priority(
 ) -> Result<(), String> {
     let value = normalize_priority(priority.as_str())?;
     let now = chrono::Utc::now().timestamp();
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
 
     let mut stmt = conn
         .prepare(
             "UPDATE tcloud_sync_jobs
              SET priority = ?1, updated_at = ?2
-             WHERE id = ?3"
+             WHERE id = ?3",
         )
         .map_err(|e| e.to_string())?;
     stmt.bind((1, value)).map_err(|e| e.to_string())?;

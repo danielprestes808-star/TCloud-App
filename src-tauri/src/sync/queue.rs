@@ -20,7 +20,6 @@ pub struct QueueRecord {
 
 impl QueueRecord {
     pub fn is_pending(&self) -> bool {
-        self.status.eq_ignore_ascii_case("pending")
-            || self.status.eq_ignore_ascii_case("failed")
+        self.status.eq_ignore_ascii_case("pending") || self.status.eq_ignore_ascii_case("failed")
     }
 }

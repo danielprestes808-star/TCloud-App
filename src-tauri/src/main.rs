@@ -13,8 +13,13 @@ fn main() {
             let mode = mode.to_string_lossy();
             if mode == "--cfapi-pin" || mode == "--cfapi-unpin" {
                 let pinned = mode == "--cfapi-pin";
-                let Some(path) = args.next() else { std::process::exit(2); };
-                let result = app_lib::commands::tcloud_cfapi::shell_pin_path(std::path::Path::new(&path), pinned);
+                let Some(path) = args.next() else {
+                    std::process::exit(2);
+                };
+                let result = app_lib::commands::tcloud_cfapi::shell_pin_path(
+                    std::path::Path::new(&path),
+                    pinned,
+                );
                 std::process::exit(if result.is_ok() { 0 } else { 3 });
             }
         }

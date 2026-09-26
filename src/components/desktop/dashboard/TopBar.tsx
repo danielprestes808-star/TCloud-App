@@ -261,7 +261,7 @@ export function TopBar({
                     </>
                 ) : (
                     <>
-                        {canUploadItems && <button type="button" className="tcloud-explorer-command is-primary-action" onClick={onUploadClick} title="Enviar arquivos"><UploadCloud className="h-4 w-4" /><span>Upload</span></button>}
+                        {canUploadItems && <button type="button" className="tcloud-explorer-command is-primary-action" onClick={onUploadClick} title="Enviar arquivos"><UploadCloud className="h-4 w-4" /><span>Enviar</span></button>}
                         {canCreateItems && <button type="button" className="tcloud-explorer-command" onClick={onCreateFolderRequest} title="Nova pasta (Ctrl+Shift+N)"><FolderPlus className="h-4 w-4" /><span>Nova pasta</span></button>}
                         {canCreateItems && clipboardCount > 0 && onPaste && <button type="button" className="tcloud-explorer-command" onClick={onPaste} title="Colar (Ctrl+V)"><ClipboardPaste className="h-4 w-4" /><span>Colar</span></button>}
                     </>

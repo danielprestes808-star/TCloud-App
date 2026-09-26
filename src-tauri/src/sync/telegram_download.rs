@@ -16,11 +16,10 @@ pub struct RemoteDownloadRecord {
     pub telegram_message_id: i64,
 }
 
-pub fn load_remote_record(
-    db: &DbConnection,
-    file_id: i64,
-) -> Result<RemoteDownloadRecord, String> {
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+pub fn load_remote_record(db: &DbConnection, file_id: i64) -> Result<RemoteDownloadRecord, String> {
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
         .prepare(
             "SELECT id, name, telegram_chat_id, telegram_message_id
@@ -28,7 +27,7 @@ pub fn load_remote_record(
              WHERE id = ?1
                AND telegram_chat_id IS NOT NULL
                AND telegram_message_id IS NOT NULL
-             LIMIT 1"
+             LIMIT 1",
         )
         .map_err(|e| e.to_string())?;
 
@@ -54,10 +53,6 @@ pub fn prepare_cache_target(record: &RemoteDownloadRecord) -> Result<PathBuf, St
     Ok(path)
 }
 
-pub fn complete_download(
-    db: &DbConnection,
-    file_id: i64,
-    target: &PathBuf,
-) -> Result<(), String> {
+pub fn complete_download(db: &DbConnection, file_id: i64, target: &PathBuf) -> Result<(), String> {
     mark_cached(db, file_id, target)
 }

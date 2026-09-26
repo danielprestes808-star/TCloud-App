@@ -25,11 +25,11 @@ pub fn tcloud_get_download_state(
         }
     }
 
-    let conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
+    let conn = db
+        .lock()
+        .map_err(|_| "database lock poisoned".to_string())?;
     let mut stmt = conn
-        .prepare(
-            "SELECT sync_status FROM tcloud_files WHERE id = ?1 LIMIT 1"
-        )
+        .prepare("SELECT sync_status FROM tcloud_files WHERE id = ?1 LIMIT 1")
         .map_err(|e| e.to_string())?;
     stmt.bind((1, file_id)).map_err(|e| e.to_string())?;
 

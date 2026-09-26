@@ -1,7 +1,7 @@
+use crate::db::DbConnection;
+use rand::Rng;
 use serde::Serialize;
 use tauri::State;
-use rand::Rng;
-use crate::db::DbConnection;
 
 #[derive(Debug, Serialize)]
 pub struct ShareInfo {
@@ -49,8 +49,12 @@ pub async fn cmd_create_share(
         let mut encrypted = conn
             .prepare("SELECT 1 FROM encrypted_files WHERE folder_key = ? AND message_id = ? AND record_state = 'active'")
             .map_err(|e| e.to_string())?;
-        encrypted.bind((1, folder_key.as_str())).map_err(|e| e.to_string())?;
-        encrypted.bind((2, i64::from(message_id))).map_err(|e| e.to_string())?;
+        encrypted
+            .bind((1, folder_key.as_str()))
+            .map_err(|e| e.to_string())?;
+        encrypted
+            .bind((2, i64::from(message_id)))
+            .map_err(|e| e.to_string())?;
         if matches!(encrypted.next(), Ok(sqlite::State::Row)) {
             return Err("[ENCRYPTED_SHARE_UNAVAILABLE] Encrypted sharing is disabled until a credential-safe sharing flow is available".to_string());
         }
@@ -58,7 +62,7 @@ pub async fn cmd_create_share(
     let token = generate_share_token();
     let created_at = chrono::Utc::now().timestamp();
     let expires_at = expiry_hours.map(|hours| created_at + hours * 3600);
-    
+
     let password_hash = if let Some(ref pwd) = password {
         if pwd.is_empty() {
             None
@@ -72,7 +76,7 @@ pub async fn cmd_create_share(
     };
 
     let conn = db_pool.lock().map_err(|e| e.to_string())?;
-    
+
     let mut stmt = conn.prepare(
         "INSERT INTO shared_links (id, folder_id, message_id, file_name, file_size, password_hash, password_salt, expires_at, revoked, created_at, max_downloads, download_count, last_access_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, NULL)"
@@ -80,14 +84,19 @@ pub async fn cmd_create_share(
 
     stmt.bind((1, token.as_str())).map_err(|e| e.to_string())?;
     stmt.bind((2, folder_id)).map_err(|e| e.to_string())?;
-    stmt.bind((3, message_id as i64)).map_err(|e| e.to_string())?;
-    stmt.bind((4, file_name.as_str())).map_err(|e| e.to_string())?;
+    stmt.bind((3, message_id as i64))
+        .map_err(|e| e.to_string())?;
+    stmt.bind((4, file_name.as_str()))
+        .map_err(|e| e.to_string())?;
     stmt.bind((5, file_size)).map_err(|e| e.to_string())?;
-    stmt.bind((6, password_hash.as_deref())).map_err(|e| e.to_string())?;
-    stmt.bind::<(usize, Option<&str>)>((7, None)).map_err(|e| e.to_string())?;
+    stmt.bind((6, password_hash.as_deref()))
+        .map_err(|e| e.to_string())?;
+    stmt.bind::<(usize, Option<&str>)>((7, None))
+        .map_err(|e| e.to_string())?;
     stmt.bind((8, expires_at)).map_err(|e| e.to_string())?;
     stmt.bind((9, created_at)).map_err(|e| e.to_string())?;
-    stmt.bind((10, max_downloads.filter(|value| *value > 0))).map_err(|e| e.to_string())?;
+    stmt.bind((10, max_downloads.filter(|value| *value > 0)))
+        .map_err(|e| e.to_string())?;
 
     stmt.next().map_err(|e| e.to_string())?;
 
@@ -109,9 +118,7 @@ pub async fn cmd_create_share(
 }
 
 #[tauri::command]
-pub async fn cmd_list_shares(
-    db_pool: State<'_, DbConnection>,
-) -> Result<Vec<ShareInfo>, String> {
+pub async fn cmd_list_shares(db_pool: State<'_, DbConnection>) -> Result<Vec<ShareInfo>, String> {
     let conn = db_pool.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
@@ -123,17 +130,27 @@ pub async fn cmd_list_shares(
     let mut shares = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
         let id = stmt.read::<String, _>("id").map_err(|e| e.to_string())?;
-        let has_password = stmt.read::<Option<String>, _>("password_hash").ok().flatten().is_some();
+        let has_password = stmt
+            .read::<Option<String>, _>("password_hash")
+            .ok()
+            .flatten()
+            .is_some();
         let expires_at = stmt.read::<Option<i64>, _>("expires_at").ok().flatten();
-        let file_name = stmt.read::<String, _>("file_name").map_err(|e| e.to_string())?;
-        let file_size = stmt.read::<i64, _>("file_size").map_err(|e| e.to_string())?;
-        let created_at = stmt.read::<i64, _>("created_at").map_err(|e| e.to_string())?;
+        let file_name = stmt
+            .read::<String, _>("file_name")
+            .map_err(|e| e.to_string())?;
+        let file_size = stmt
+            .read::<i64, _>("file_size")
+            .map_err(|e| e.to_string())?;
+        let created_at = stmt
+            .read::<i64, _>("created_at")
+            .map_err(|e| e.to_string())?;
         let revoked = stmt.read::<i64, _>("revoked").unwrap_or(0) != 0;
         let max_downloads = stmt.read::<Option<i64>, _>("max_downloads").ok().flatten();
         let download_count = stmt.read::<i64, _>("download_count").unwrap_or(0);
         let last_access_at = stmt.read::<Option<i64>, _>("last_access_at").ok().flatten();
         let link = format!("http://127.0.0.1:{}/d/{}", crate::STREAM_PORT, id);
-        
+
         shares.push(ShareInfo {
             id,
             file_name,
@@ -148,7 +165,7 @@ pub async fn cmd_list_shares(
             last_access_at,
         });
     }
-    
+
     Ok(shares)
 }
 
@@ -162,18 +179,22 @@ pub async fn cmd_list_share_history(
     ).map_err(|e| e.to_string())?;
     let mut shares = Vec::new();
     while let sqlite::State::Row = stmt.next().map_err(|e| e.to_string())? {
-        let id = stmt.read::<String,_>("id").map_err(|e| e.to_string())?;
+        let id = stmt.read::<String, _>("id").map_err(|e| e.to_string())?;
         shares.push(ShareInfo {
             file_name: stmt.read("file_name").map_err(|e| e.to_string())?,
             file_size: stmt.read("file_size").unwrap_or(0),
             created_at: stmt.read("created_at").unwrap_or(0),
-            expires_at: stmt.read::<Option<i64>,_>("expires_at").ok().flatten(),
-            has_password: stmt.read::<Option<String>,_>("password_hash").ok().flatten().is_some(),
+            expires_at: stmt.read::<Option<i64>, _>("expires_at").ok().flatten(),
+            has_password: stmt
+                .read::<Option<String>, _>("password_hash")
+                .ok()
+                .flatten()
+                .is_some(),
             link: format!("http://127.0.0.1:{}/d/{}", crate::STREAM_PORT, id),
-            revoked: stmt.read::<i64,_>("revoked").unwrap_or(0) != 0,
-            max_downloads: stmt.read::<Option<i64>,_>("max_downloads").ok().flatten(),
-            download_count: stmt.read::<i64,_>("download_count").unwrap_or(0),
-            last_access_at: stmt.read::<Option<i64>,_>("last_access_at").ok().flatten(),
+            revoked: stmt.read::<i64, _>("revoked").unwrap_or(0) != 0,
+            max_downloads: stmt.read::<Option<i64>, _>("max_downloads").ok().flatten(),
+            download_count: stmt.read::<i64, _>("download_count").unwrap_or(0),
+            last_access_at: stmt.read::<Option<i64>, _>("last_access_at").ok().flatten(),
             id,
         });
     }
@@ -181,14 +202,13 @@ pub async fn cmd_list_share_history(
 }
 
 #[tauri::command]
-pub async fn cmd_revoke_share(
-    id: String,
-    db_pool: State<'_, DbConnection>,
-) -> Result<(), String> {
+pub async fn cmd_revoke_share(id: String, db_pool: State<'_, DbConnection>) -> Result<(), String> {
     let conn = db_pool.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("UPDATE shared_links SET revoked = 1 WHERE id = ?").map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("UPDATE shared_links SET revoked = 1 WHERE id = ?")
+        .map_err(|e| e.to_string())?;
     stmt.bind((1, id.as_str())).map_err(|e| e.to_string())?;
     stmt.next().map_err(|e| e.to_string())?;
-    
+
     Ok(())
 }

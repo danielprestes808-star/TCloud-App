@@ -475,4 +475,5 @@ export type TranslationDomain =
   | 'network'
   | 'updates'
   | 'errors'
+  | 'ads'
   | 'accessibility';

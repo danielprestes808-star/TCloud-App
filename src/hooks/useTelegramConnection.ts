@@ -173,18 +173,19 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         };
     }, [store, isConnected, queryClient, activeFolderId]);
 
-    // Remote reconciliation loop. The local watcher handles PC-side changes; this
-    // lightweight poll refreshes Telegram-side changes while the app is visible,
-    // completing the bidirectional sync path without hammering the API.
+    // Forum discovery already has a native background worker. Keep this local UI
+    // reconciliation infrequent so a backup backlog owns the Telegram connection.
     useEffect(() => {
         if (!store || !isConnected) return;
-        const intervalMs = Math.max(15_000, Number(localStorage.getItem('tcloud:remote-sync-poll-ms') || '30000'));
+        const intervalMs = Math.max(30_000, Math.min(120_000, Number(localStorage.getItem('tcloud:remote-sync-poll-ms') || '60000')));
         const tick = async () => {
             if (
                 document.visibilityState !== 'visible'
                 || syncInFlightRef.current
                 || !isTCloudUiBackgroundReady(0, 900)
             ) return;
+            const queue = queryClient.getQueryData<{ pending?: number; running?: number }>(['tcloud-sync-overview']);
+            if ((queue?.pending ?? 0) + (queue?.running ?? 0) > 0) return;
             const request = (async () => {
                 await handleSyncFoldersRef.current?.(true);
                 await queryClient.invalidateQueries({
@@ -243,7 +244,11 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         if (!store) return;
         if (!silent) setIsSyncing(true);
         try {
-            const foundFolders = await invoke<TelegramFolder[]>('cmd_scan_folders');
+            // Silent/background refreshes must never enumerate every Telegram
+            // dialog. That scan can take minutes and starve file uploads.
+            const foundFolders = await invoke<TelegramFolder[]>(
+                silent ? 'cmd_get_enriched_folders' : 'cmd_scan_folders'
+            );
             // Refresh the first-level TCloud folder catalog directly from Telegram.
             // This runs even when the sidebar is collapsed, keeping Explorer in sync.
             try { await listTCloudForumTree(); } catch (error) { console.warn('Could not refresh TCloud folder tree', error); }
@@ -306,16 +311,35 @@ export function useTelegramConnection(onLogoutParent: () => void) {
 
     const handleCreateFolder = async (name: string) => {
         if (!store) return;
+
         try {
+            // TCLOUD_FOLDER_CREATE_UNFREEZE
             const newFolder = await createTCloudForumTopic(name);
             const updated = [...folders, newFolder];
             setFolders(updated);
-            await store.set('folders', updated);
-            await store.save();
+
             window.dispatchEvent(new Event('tcloud-forums-changed'));
-            toast.success(`Pasta "${name}" criada.`);
+            window.dispatchEvent(new Event('tcloud:foundation5-data-changed'));
+
+            void (async () => {
+                try {
+                    const persist = (async () => {
+                        await store.set('folders', updated);
+                        await store.save();
+                    })();
+                    const timeout = new Promise<void>((resolve) => {
+                        window.setTimeout(resolve, 1800);
+                    });
+                    await Promise.race([persist, timeout]);
+                } catch (error) {
+                    console.warn('TCloud folder create: persistencia local adiada', error);
+                }
+            })();
+
+            toast.success(`Folder "${name}" created.`);
+            return newFolder;
         } catch (e) {
-            toast.error("N?o foi poss?vel criar a pasta: " + String(e));
+            toast.error("Failed to create folder: " + e);
             throw e;
         }
     };

@@ -16,6 +16,7 @@ export function useCachedVariants(
     messageId: number,
     folderId: number | null,
     fileName: string,
+    enabled = true,
 ) {
     const isMp4 = fileName.toLowerCase().endsWith('.mp4');
 
@@ -32,7 +33,7 @@ export function useCachedVariants(
                 return [];
             }
         },
-        enabled: isMp4,
+        enabled: isMp4 && enabled,
         staleTime: STALE_TIME,
         gcTime: 30 * 60_000,
         refetchOnWindowFocus: false,

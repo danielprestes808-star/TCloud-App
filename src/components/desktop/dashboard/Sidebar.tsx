@@ -20,13 +20,16 @@ import {
     Image,
     LockKeyhole,
     LogOut,
+    Monitor,
     MoreHorizontal,
     MoreVertical,
     MoveRight,
     Music2,
     Pencil,
+    Plus,
     Settings,
     Star,
+    Smartphone,
     Trash2,
     Video,
     Wrench,
@@ -50,8 +53,8 @@ interface SidebarProps {
     activeForumId?: number | null;
     setActiveFolderId: (id: number | null) => void;
     onWarmFolder?: (id: number) => void;
-    rootView: 'dashboard' | 'saved' | 'recent' | 'favorites' | 'problems' | 'sync' | 'trash' | 'gallery' | 'music' | 'offline' | 'vault';
-    onRootViewChange: (view: 'dashboard' | 'saved' | 'recent' | 'favorites' | 'problems' | 'sync' | 'trash' | 'gallery' | 'music' | 'offline' | 'vault') => void;
+    rootView: 'dashboard' | 'saved' | 'recent' | 'favorites' | 'problems' | 'sync' | 'trash' | 'gallery' | 'music' | 'offline' | 'vault' | 'duplicates' | 'settings';
+    onRootViewChange: (view: 'dashboard' | 'saved' | 'recent' | 'favorites' | 'problems' | 'sync' | 'trash' | 'gallery' | 'music' | 'offline' | 'vault' | 'duplicates' | 'settings') => void;
     onDelete: (id: number, name: string) => void;
     onRename: (id: number, name: string) => void;
     onToggleVisibility: (id: number, name: string, isPublic: boolean) => void;
@@ -67,10 +70,10 @@ interface SidebarProps {
     onOpenSettings?: () => void;
     onOpenForums?: () => void;
     onOpenAdvanced?: () => void;
-    onOpenDuplicates?: () => void;
     onOpenForum?: (forum: TCloudForumTree) => void;
     problemCount?: number;
     syncingCount?: number;
+    settingsOpen?: boolean;
 }
 
 type TopicMenuState = {
@@ -180,20 +183,32 @@ export function Sidebar({
     onOpenSettings,
     onOpenForums,
     onOpenAdvanced,
-    onOpenDuplicates,
     onOpenForum,
+    onCreate,
     problemCount = 0,
     syncingCount = 0,
+    settingsOpen = false,
 }: SidebarProps) {
     const { t } = useTranslation();
     const { settings, updateSetting } = useSettings();
     const queryClient = useQueryClient();
 
+    const createFolderFromSidebar = async () => {
+        const name = window.prompt('Nome da nova pasta');
+        if (!name?.trim()) return;
+        try {
+            await onCreate(name.trim());
+            toast.success(`Pasta "${name.trim()}" criada`);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Não foi possível criar a pasta');
+        }
+    };
+
     // Explorer self-heal:
     // evita mais de uma tentativa simultânea de reconstruir o registro
     // StorageProvider/SyncRoot do painel de navegação.
     const explorerRepairInFlightRef = useRef(false);
-    const { data: forumTree = [] } = useQuery({
+    const { data: rawForumTree = [] } = useQuery({
         queryKey: ['tcloud-forum-tree'],
         queryFn: listTCloudForumTree,
         enabled: isConnected,
@@ -201,6 +216,57 @@ export function Sidebar({
         refetchInterval: 120_000,
         refetchIntervalInBackground: false,
     });
+    // Telegram permits multiple forums/topics with the same visible name. The
+    // product presents them as one logical folder, matching mobile and web.
+    const forumTree = useMemo(() => {
+        const groups = new Map<string, TCloudForumTree[]>();
+        for (const forum of rawForumTree) {
+            const key = normalizeName(forum.name);
+            groups.set(key, [...(groups.get(key) ?? []), forum]);
+        }
+        return Array.from(groups.values()).map((matches) => {
+            const primary = matches.slice().sort((left, right) => right.topics.length - left.topics.length || left.id - right.id)[0];
+            const topics = new Map<string, TCloudForumTree['topics'][number]>();
+            for (const forum of matches) {
+                for (const topic of forum.topics) {
+                    const key = normalizeName(topic.name);
+                    if (!topics.has(key)) topics.set(key, topic);
+                }
+            }
+            return { ...primary, topics: Array.from(topics.values()) };
+        });
+    }, [rawForumTree]);
+    const deviceRoots = useMemo(() => {
+        const aggregate = (matches: TCloudForumTree[], name: string, topicPrefix?: string) => {
+            const fallback = matches[0] ?? forumTree[0];
+            if (!fallback) return undefined;
+            const topics = new Map<number, TCloudForumTree['topics'][number]>();
+            const sources = topicPrefix ? forumTree : matches;
+            for (const forum of sources) {
+                const forumBelongsToDevice = matches.some((match) => match.id === forum.id);
+                for (const topic of forum.topics) {
+                    const normalizedTopic = normalizeName(topic.name);
+                    if (!forumBelongsToDevice && (!topicPrefix || !normalizedTopic.startsWith(topicPrefix))) continue;
+                    const visibleName = topicPrefix && normalizedTopic.startsWith(topicPrefix)
+                        ? topic.name.replace(/^\s*galeria\s*\/\s*/i, '').trim() || 'Galeria'
+                        : topic.name;
+                    topics.set(topic.id, { ...topic, name: visibleName });
+                }
+            }
+            return { ...fallback, name, topics: Array.from(topics.values()) };
+        };
+        const computerForums = forumTree.filter((forum) => normalizeName(forum.name).startsWith('meu computador'));
+        const phoneForums = forumTree.filter((forum) => {
+            const name = normalizeName(forum.name);
+            return name.startsWith('meu telefone') || name.startsWith('galeria');
+        });
+        return {
+            computer: aggregate(computerForums, 'Meu computador'),
+            // Backups antigos guardavam "Galeria / Camera" como tópicos dentro de
+            // Meus Arquivos, não como um fórum Galeria. Reúne as duas estruturas.
+            phone: aggregate(phoneForums, 'Meu telefone', 'galeria /'),
+        };
+    }, [forumTree]);
     const [expandedForums, setExpandedForums] = useState<Record<number, boolean>>(() => {
         try {
             const raw = localStorage.getItem('tcloud:expanded-main-folders');
@@ -218,6 +284,7 @@ export function Sidebar({
     const [transferTargetForumId, setTransferTargetForumId] = useState<number | null>(null);
     const [isTransferringTopic, setIsTransferringTopic] = useState(false);
     const [footerMenuOpen, setFooterMenuOpen] = useState(false);
+    const [libraryExpanded, setLibraryExpanded] = useState(() => ['music', 'duplicates', 'vault', 'trash'].includes(rootView));
 
     // Share the same React Query cache used by the main dashboard. This removes a
     // second independent CFAPI/WinRT polling loop from the sidebar.
@@ -451,7 +518,7 @@ Ela precisa estar vazia.`)) return;
 
     if (settings.sidebarCollapsed) {
         return (
-            <aside className="tcloud-sidebar tcloud-explorer-sidebar is-collapsed" style={{ width: 52 }}>
+            <aside className="tcloud-sidebar tcloud-explorer-sidebar is-collapsed min-h-0 overflow-hidden" style={{ width: 52 }}>
                 <div className="tcloud-explorer-brand is-collapsed">
                     <img src="/logo.svg" className="h-7 w-7" alt="TCloud" />
                 </div>
@@ -459,7 +526,7 @@ Ela precisa estar vazia.`)) return;
                     <button title="Início" onClick={() => { setActiveFolderId(null); onRootViewChange('dashboard'); }}><Home className="h-4 w-4" /></button>
                     <button title="Abrir TCloud no Explorer" onClick={() => void openCfapiRoot()}><HardDrive className="h-4 w-4" /></button>
                     <button title="Pastas" onClick={() => onOpenForums?.()}><Folder className="h-4 w-4" /></button>
-                    <button title="Duplicados" onClick={() => onOpenDuplicates?.()}><Copy className="h-4 w-4" /></button>
+                    <button title="Duplicados" onClick={() => { setActiveFolderId(null); onRootViewChange('duplicates'); }}><Copy className="h-4 w-4" /></button>
                     <button title="Configurações" onClick={() => onOpenSettings?.()}><Settings className="h-4 w-4" /></button>
                 </div>
                 <div className="mt-auto flex flex-col items-center gap-1 border-t border-app-border-subtle p-2">
@@ -483,15 +550,40 @@ Ela precisa estar vazia.`)) return;
                 </button>
             </div>
 
+            <div className="tcloud-sidebar-primary-action">
+                <button type="button" onClick={() => void createFolderFromSidebar()}>
+                    <Plus className="h-5 w-5" />
+                    <span>Novo</span>
+                </button>
+            </div>
+
             <div className="tcloud-explorer-sidebar-scroll">
                 <nav className="tcloud-explorer-nav-group" aria-label="Navegação principal">
-                    <NavItem icon={Home} label="Início" active={activeFolderId === null && rootView === 'dashboard'} onClick={() => { setActiveFolderId(null); onRootViewChange('dashboard'); }} />
+                    <NavItem icon={Home} label="Início / Painel" active={activeFolderId === null && rootView === 'dashboard' && activeForumId === null} onClick={() => { setActiveFolderId(null); onRootViewChange('dashboard'); }} />
+                    <NavItem icon={Folder} label="Todos os Arquivos" active={activeFolderId === null && rootView === 'saved'} onClick={() => { setActiveFolderId(null); onRootViewChange('saved'); }} />
+                    <NavItem icon={GalleryVerticalEnd} label="Fotos & Mídias" active={activeFolderId === null && rootView === 'gallery'} onClick={() => { setActiveFolderId(null); onRootViewChange('gallery'); }} />
+                    <NavItem icon={Music2} label="Player Multimídia" active={activeFolderId === null && rootView === 'music'} onClick={() => { setActiveFolderId(null); onRootViewChange('music'); }} />
                     <NavItem icon={Clock3} label="Recentes" active={activeFolderId === null && rootView === 'recent'} onClick={() => { setActiveFolderId(null); onRootViewChange('recent'); }} />
                     <NavItem icon={Star} label="Favoritos" active={activeFolderId === null && rootView === 'favorites'} onClick={() => { setActiveFolderId(null); onRootViewChange('favorites'); }} />
+                    <NavItem icon={Trash2} label="Lixeira" active={activeFolderId === null && rootView === 'trash'} onClick={() => { setActiveFolderId(null); onRootViewChange('trash'); }} />
 
-                    {(syncingCount > 0 || rootView === 'sync') && <NavItem icon={Activity} label="Sincronização" badge={syncingCount} badgeTone="busy" active={activeFolderId === null && rootView === 'sync'} onClick={() => { setActiveFolderId(null); onRootViewChange('sync'); }} />}
+                    <NavItem icon={Activity} label="Sincronização & Dispositivos" badge={syncingCount} badgeTone="busy" active={activeFolderId === null && rootView === 'sync'} onClick={() => { setActiveFolderId(null); onRootViewChange('sync'); }} />
                     {problemCount > 0 && <NavItem icon={CircleAlert} label="Precisa de atenção" badge={problemCount} badgeTone="danger" active={activeFolderId === null && rootView === 'problems'} onClick={() => { setActiveFolderId(null); onRootViewChange('problems'); }} />}
                 </nav>
+
+                <section className="tcloud-explorer-section tcloud-device-roots">
+                    <div className="tcloud-explorer-section-title"><span>Meus dispositivos</span></div>
+                    <button type="button" className="tcloud-device-root-card" onClick={() => deviceRoots.computer ? onOpenForum?.(deviceRoots.computer) : onOpenSettings?.()}>
+                        <span className="tcloud-device-root-icon"><Monitor className="h-5 w-5" /></span>
+                        <span><strong>Meu computador</strong><small>{deviceRoots.computer ? `${deviceRoots.computer.topics.length} pastas` : 'Configurar backup'}</small></span>
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <button type="button" className="tcloud-device-root-card" onClick={() => deviceRoots.phone ? onOpenForum?.(deviceRoots.phone) : onOpenSettings?.()}>
+                        <span className="tcloud-device-root-icon is-phone"><Smartphone className="h-5 w-5" /></span>
+                        <span><strong>Meu telefone</strong><small>{deviceRoots.phone ? `${deviceRoots.phone.topics.length} pastas` : 'Conectar telefone'}</small></span>
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                </section>
 
                 <section className="tcloud-explorer-section">
                     <div className="tcloud-explorer-section-title"><span>Este computador</span></div>
@@ -527,22 +619,11 @@ Ela precisa estar vazia.`)) return;
                 </section>
 
                 <section className="tcloud-explorer-section">
+                    {/* TCLOUD_FOLDER_SCROLL_FIX: lista de pastas com scroll vertical proprio */}
                     <div className="tcloud-explorer-section-title">
-                        <span>Meu TCloud</span>
+                        <span>Pastas</span>
                         <button type="button" onClick={() => onOpenForums?.()} title="Organizar pastas"><MoreHorizontal className="h-3.5 w-3.5" /></button>
                     </div>
-                    <button
-                        type="button"
-                        className={`tcloud-explorer-folder-row tcloud-sidebar-cloud-root ${activeFolderId === null && rootView === 'dashboard' && activeForumId === null ? 'is-active' : ''}`}
-                        onClick={() => {
-                            setActiveFolderId(null);
-                            onRootViewChange('dashboard');
-                        }}
-                        title="Abrir seus arquivos"
-                    >
-                        <HardDrive className="h-4 w-4 text-app-accent" />
-                        <span>Meus arquivos</span>
-                    </button>
                     <button
                         type="button"
                         className={`tcloud-explorer-folder-row tcloud-sidebar-special-row ${activeFolderId === null && rootView === 'saved' ? 'is-active' : ''}`}
@@ -705,28 +786,23 @@ Ela precisa estar vazia.`)) return;
                 )}
 
                 <section className="tcloud-explorer-section">
-                    <div className="tcloud-explorer-section-title"><span>Biblioteca</span></div>
-                    <NavItem icon={GalleryVerticalEnd} label="Galeria" active={activeFolderId === null && rootView === 'gallery'} onClick={() => { setActiveFolderId(null); onRootViewChange('gallery'); }} />
-                    <NavItem icon={Music2} label="Música" active={activeFolderId === null && rootView === 'music'} onClick={() => { setActiveFolderId(null); onRootViewChange('music'); }} />
-                    <NavItem icon={Copy} label="Duplicados" onClick={() => onOpenDuplicates?.()} title="Encontrar arquivos idênticos e escolher quais remover" />
-
-                    <NavItem icon={LockKeyhole} label="Cofre" active={activeFolderId === null && rootView === 'vault'} onClick={() => { setActiveFolderId(null); onRootViewChange('vault'); }} />
-                </section>
-                <section className="tcloud-explorer-section tcloud-sidebar-trash-section">
-                    <NavItem
-                        icon={Trash2}
-                        label="Lixeira"
-                        active={activeFolderId === null && rootView === 'trash'}
-                        onClick={() => {
-                            setActiveFolderId(null);
-                            onRootViewChange('trash');
-                        }}
-                    />
+                    <div className="tcloud-explorer-section-title"><span>Segurança & Sistema</span></div>
+                    <NavItem icon={LockKeyhole} label="Cofre Criptografado" active={activeFolderId === null && rootView === 'vault'} onClick={() => { setActiveFolderId(null); onRootViewChange('vault'); }} />
+                    <button type="button" className="tcloud-explorer-nav-item tcloud-sidebar-more-toggle" onClick={() => setLibraryExpanded((value) => !value)} aria-expanded={libraryExpanded}>
+                        <ChevronRight className={`h-4 w-4 transition-transform ${libraryExpanded ? 'rotate-90' : ''}`} />
+                        <span>{libraryExpanded ? 'Ocultar opções' : 'Mais'}</span>
+                    </button>
+                    {libraryExpanded && <div className="tcloud-sidebar-more-items">
+                        <NavItem icon={Music2} label="Música" active={activeFolderId === null && rootView === 'music'} onClick={() => { setActiveFolderId(null); onRootViewChange('music'); }} />
+                        <NavItem icon={Copy} label="Duplicados" active={activeFolderId === null && rootView === 'duplicates'} onClick={() => { setActiveFolderId(null); onRootViewChange('duplicates'); }} />
+                        <NavItem icon={LockKeyhole} label="Cofre" active={activeFolderId === null && rootView === 'vault'} onClick={() => { setActiveFolderId(null); onRootViewChange('vault'); }} />
+                        <NavItem icon={Trash2} label="Lixeira" active={activeFolderId === null && rootView === 'trash'} onClick={() => { setActiveFolderId(null); onRootViewChange('trash'); }} />
+                    </div>}
                 </section>
             </div>
 
             <footer className="tcloud-explorer-sidebar-footer">
-                <button type="button" className="tcloud-explorer-footer-row" onClick={() => onOpenSettings?.()}>
+                <button type="button" className={`tcloud-explorer-footer-row ${settingsOpen ? 'is-active' : ''}`} onClick={() => { setActiveFolderId(null); onRootViewChange('settings'); }}>
                     <Settings className="h-4 w-4" />
                     <span>Configurações</span>
                 </button>
