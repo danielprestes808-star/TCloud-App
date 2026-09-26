@@ -71,7 +71,7 @@ reqwest = { version = "0.12", default-features = false, features = ["stream", "r
 sysinfo = "0.30"
 tokio-rustls = "0.26"
 rustls = "0.23"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 pdf-extract = "0.12.0"
 
 unrar = "0.5"
